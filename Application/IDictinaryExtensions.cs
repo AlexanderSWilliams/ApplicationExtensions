@@ -68,5 +68,26 @@ namespace Application.IDictionaryExtensions
                 prop.targetProp.SetValue(target, obj);
             }
         }
+
+        public static List<List<string>> ToListOfListOfStrings<K, V>(this IEnumerable<IDictionary<K, V>> source)
+        {
+            var result = new List<List<string>>();
+            if (!source.Any())
+                return result;
+            var Keys = source.First().Keys.ToList();
+
+            result.Add(Keys.Select(x => x?.ToString()).ToList());
+            foreach (var row in source)
+            {
+                var rowResult = new List<string>();
+                foreach (var key in Keys)
+                {
+                    rowResult.Add(row[key]?.ToString());
+                }
+                result.Add(rowResult);
+            }
+
+            return result;
+        }
     }
 }

@@ -12,7 +12,7 @@ namespace Application.Data.SQLServer
     {
         public static StringBuilder NullBuilder = new StringBuilder("NULL");
 
-        public static string AutoBackupDBCommand(DbConnection conn, string sqlServerPath, string dbName, string stats = "10")
+        public static string AutoBackupDBCommand(this DbConnection conn, string sqlServerPath, string dbName, string stats = "10")
         {
             var sourceLogicalFileName = GetLogicalFileNameFromDB(conn, dbName);
             if (sourceLogicalFileName != dbName)
@@ -23,11 +23,10 @@ namespace Application.Data.SQLServer
                 conn.Execute(query);
             }
 
-            return conn.Query(@"BACKUP DATABASE [" + dbName + @"] TO  DISK = N'" + sqlServerPath + @"\AutoBackup\" + dbName + @".bak' WITH FORMAT, INIT,  NAME = N'" + dbName + @"-Full Database Backup', NOREWIND, NOUNLOAD,  STATS = " + stats + @"")
-                .First().First().Value?.ToString();
+            return conn.Query<string>(@"BACKUP DATABASE [" + dbName + @"] TO  DISK = N'" + sqlServerPath + @"\AutoBackup\" + dbName + @".bak' WITH FORMAT, INIT,  NAME = N'" + dbName + @"-Full Database Backup', NOREWIND, NOUNLOAD,  STATS = " + stats + @"").First();
         }
 
-        public static string BackupDBCommand(DbConnection conn, string sqlServerPath, string dbName, string stats = "10")
+        public static string BackupDBCommand(this DbConnection conn, string sqlServerPath, string dbName, string stats = "10")
         {
             var sourceLogicalFileName = GetLogicalFileNameFromDB(conn, dbName);
 
@@ -38,8 +37,7 @@ namespace Application.Data.SQLServer
                 conn.Execute(query);
             }
 
-            return conn.Query(@"BACKUP DATABASE [" + dbName + @"] TO  DISK = N'" + sqlServerPath + @"\Backup\" + dbName + @".bak' WITH FORMAT, INIT,  NAME = N'" + dbName + @"-Full Database Backup', NOREWIND, NOUNLOAD,  STATS = " + stats + @"")
-                .First().First().Value?.ToString();
+            return conn.Query<string>(@"BACKUP DATABASE [" + dbName + @"] TO  DISK = N'" + sqlServerPath + @"\Backup\" + dbName + @".bak' WITH FORMAT, INIT,  NAME = N'" + dbName + @"-Full Database Backup', NOREWIND, NOUNLOAD,  STATS = " + stats + @"").First();
         }
 
         public static string ContainsIDsInTableCommand(string tableName, IEnumerable<object> matches)
@@ -54,14 +52,14 @@ namespace Application.Data.SQLServer
                 .Append(dictMatches.Aggregate(x => GetMatchExpression(x), (result, x) => result.Append(" OR ").Append(GetMatchExpression(x)))).Append(")").ToString();
         }
 
-        public static string DeleteAllTablesCommand(DbConnection conn, string[] tablePrefixNamesToOmit, string mandatoryPrefix = null)
+        public static string DeleteAllTablesCommand(this DbConnection conn, string[] tablePrefixNamesToOmit, string mandatoryPrefix = null)
         {
             var OrderedToDeleleTables = GetTableNamessInOrderOfValidDeletion(conn, tablePrefixNamesToOmit, mandatoryPrefix);
 
             return OrderedToDeleleTables.Aggregate(x => new StringBuilder("DELETE FROM [").Append(x).Append("]"), (result, x) => result.Append(System.Environment.NewLine).Append("DELETE FROM [").Append(x).Append("]")).ToString();
         }
 
-        public static string DropColumnAndDependentConstraintsAndIndex(DbConnection conn, string tableName, string columnName)
+        public static string DropColumnAndDependentConstraintsAndIndex(this DbConnection conn, string tableName, string columnName)
         {
             var ForeignKeys = GetDependentForeignKeys(conn, tableName, columnName);
             var PrimaryKeys = GetDependentPrimaryKey(conn, tableName, columnName);
@@ -79,14 +77,14 @@ namespace Application.Data.SQLServer
                     "ALTER TABLE [" + tableName + @"] DROP COLUMN [" + columnName + @"];";
         }
 
-        public static string DropForeignKeyConstraintCommand(DbConnection conn, string tableName, string columnName, string relatedTableName)
+        public static string DropForeignKeyConstraintCommand(this DbConnection conn, string tableName, string columnName, string relatedTableName)
         {
             var ForeignKeyName = GetForeignKeyName(conn, relatedTableName, columnName, tableName);
 
             return "ALTER TABLE " + tableName + " drop [" + ForeignKeyName + "]";
         }
 
-        public static IEnumerable<RelationshipInfo> GetAllRelationships(DbConnection conn)
+        public static IEnumerable<RelationshipInfo> GetAllRelationships(this DbConnection conn)
         {
             // Generated from
             //sys.foreign_keys.GroupJoin(sys.foreign_key_columns, o => o.object_id, i => i.constraint_object_id, (o, i) => new {
@@ -96,89 +94,154 @@ namespace Application.Data.SQLServer
             //    i.First().referenced_column_id,
             //    i.First().referenced_object_id
             //})
-            //.GroupJoin(sys.columns, o => new {o.object_id, o.column_id}, i => new {i.object_id, i.column_id}, (o, i) => new {
+            //.GroupJoin(sys.columns, o => new { o.object_id, o.column_id }, i => new { i.object_id, i.column_id }, (o, i) => new {
             //    o.ForeignKeyName,
             //    o.object_id,
             //    o.referenced_object_id,
-            //    ColumnName = i.First().name
+            //    o.referenced_column_id,
+            //    ColumnName = i.First().name,
+            //    i.First().is_nullable
+            //})
+            //.GroupJoin(sys.columns, o => new { object_id = o.referenced_object_id, column_id = o.referenced_column_id }, i => new { i.object_id, i.column_id }, (o, i) => new {
+            //    o.ForeignKeyName,
+            //    o.object_id,
+            //    o.referenced_object_id,
+            //    o.referenced_column_id,
+            //    o.is_nullable,
+            //    o.ColumnName,
+            //    ReferencedColumnName = i.First().name
             //})
             //.GroupJoin(sys.tables, o => o.object_id, i => i.object_id, (o, i) => new {
             //    o.ForeignKeyName,
-            //    o.ColumnName,
+            //    o.object_id,
             //    o.referenced_object_id,
-            //    TableName = i.First().name,
+            //    o.is_nullable,
+            //    o.ColumnName,
+            //    o.ReferencedColumnName,
+            //    TableName = i.First().name
             //})
             //.GroupJoin(sys.tables, o => o.referenced_object_id, i => i.object_id, (o, i) => new {
-            //        o.TableName,
-            //        RelatedTable = i.First().name,
-            //        o.ColumnName,
-            //        o.ForeignKeyName
+            //    o.ForeignKeyName,
+            //    IsNullable = o.is_nullable,
+            //    o.ColumnName,
+            //    o.ReferencedColumnName,
+            //    o.TableName,
+            //    RelatedTable = i.First().name,
             //})
             //.OrderBy(x => x.TableName).ThenBy(x => x.RelatedTable).ThenBy(x => x.ColumnName).ThenBy(x => x.ForeignKeyName)
 
             var query = @"
-                    SELECT [t16].[value2] AS [TableName], [t16].[value] AS [RelatedTable], [t16].[value3] AS [ColumnName], [t16].[name] AS [ForeignKeyName]
+SELECT [t23].[name] AS [ForeignKeyName], [t23].[value5] AS [IsNullable], [t23].[value] AS [ColumnName], [t23].[value3] AS [ReferencedColumnName], [t23].[value2] AS [TableName], [t23].[value4] AS [RelatedTable]
+FROM (
+    SELECT [t20].[name], [t20].[value5], [t20].[value], [t20].[value3], [t20].[value2], (
+        SELECT [t22].[name]
+        FROM (
+            SELECT TOP (1) [t21].[name]
+            FROM [sys].[tables] AS [t21]
+            WHERE [t20].[value4] = [t21].[object_id]
+            ) AS [t22]
+        ) AS [value4]
+    FROM (
+        SELECT [t17].[name], [t17].[value4], [t17].[value5], [t17].[value], [t17].[value3], (
+            SELECT [t19].[name]
+            FROM (
+                SELECT TOP (1) [t18].[name]
+                FROM [sys].[tables] AS [t18]
+                WHERE [t17].[value2] = [t18].[object_id]
+                ) AS [t19]
+            ) AS [value2]
+        FROM (
+            SELECT [t14].[name], [t14].[value2], [t14].[value4], [t14].[value5], [t14].[value], (
+                SELECT [t16].[name]
+                FROM (
+                    SELECT TOP (1) [t15].[name]
+                    FROM [sys].[columns] AS [t15]
+                    WHERE ([t14].[value4] = [t15].[object_id]) AND ([t14].[value3] = [t15].[column_id])
+                    ) AS [t16]
+                ) AS [value3]
+            FROM (
+                SELECT [t9].[name], [t9].[value2], [t9].[value4], [t9].[value3], (
+                    SELECT [t11].[name]
                     FROM (
-                        SELECT [t13].[value2], (
-                            SELECT [t15].[name]
-                            FROM (
-                                SELECT TOP (1) [t14].[name]
-                                FROM [sys].[tables] AS [t14]
-                                WHERE [t13].[value3] = [t14].[object_id]
-                                ) AS [t15]
-                            ) AS [value], [t13].[value] AS [value3], [t13].[name]
+                        SELECT TOP (1) [t10].[name]
+                        FROM [sys].[columns] AS [t10]
+                        WHERE ([t9].[value2] = [t10].[object_id]) AND ([t9].[value] = [t10].[column_id])
+                        ) AS [t11]
+                    ) AS [value], (
+                    SELECT [t13].[is_nullable]
+                    FROM (
+                        SELECT TOP (1) [t12].[is_nullable]
+                        FROM [sys].[columns] AS [t12]
+                        WHERE ([t9].[value2] = [t12].[object_id]) AND ([t9].[value] = [t12].[column_id])
+                        ) AS [t13]
+                    ) AS [value5]
+                FROM (
+                    SELECT [t0].[name], (
+                        SELECT [t2].[parent_column_id]
                         FROM (
-                            SELECT [t10].[name], [t10].[value], [t10].[value3], (
-                                SELECT [t12].[name]
-                                FROM (
-                                    SELECT TOP (1) [t11].[name]
-                                    FROM [sys].[tables] AS [t11]
-                                    WHERE [t10].[value2] = [t11].[object_id]
-                                    ) AS [t12]
-                                ) AS [value2]
-                            FROM (
-                                SELECT [t7].[name], [t7].[value2], [t7].[value3], (
-                                    SELECT [t9].[name]
-                                    FROM (
-                                        SELECT TOP (1) [t8].[name]
-                                        FROM [sys].[columns] AS [t8]
-                                        WHERE ([t7].[value2] = [t8].[object_id]) AND ([t7].[value] = [t8].[column_id])
-                                        ) AS [t9]
-                                    ) AS [value]
-                                FROM (
-                                    SELECT [t0].[name], (
-                                        SELECT [t2].[parent_column_id]
-                                        FROM (
-                                            SELECT TOP (1) [t1].[parent_column_id]
-                                            FROM [sys].[foreign_key_columns] AS [t1]
-                                            WHERE [t0].[object_id] = [t1].[constraint_object_id]
-                                            ) AS [t2]
-                                        ) AS [value], (
-                                        SELECT [t4].[parent_object_id]
-                                        FROM (
-                                            SELECT TOP (1) [t3].[parent_object_id]
-                                            FROM [sys].[foreign_key_columns] AS [t3]
-                                            WHERE [t0].[object_id] = [t3].[constraint_object_id]
-                                            ) AS [t4]
-                                        ) AS [value2], (
-                                        SELECT [t6].[referenced_object_id]
-                                        FROM (
-                                            SELECT TOP (1) [t5].[referenced_object_id]
-                                            FROM [sys].[foreign_key_columns] AS [t5]
-                                            WHERE [t0].[object_id] = [t5].[constraint_object_id]
-                                            ) AS [t6]
-                                        ) AS [value3]
-                                    FROM [sys].[foreign_keys] AS [t0]
-                                    ) AS [t7]
-                                ) AS [t10]
-                            ) AS [t13]
-                        ) AS [t16]
-                    ORDER BY [t16].[value2], [t16].[value], [t16].[value3], [t16].[name]";
+                            SELECT TOP (1) [t1].[parent_column_id]
+                            FROM [sys].[foreign_key_columns] AS [t1]
+                            WHERE [t0].[object_id] = [t1].[constraint_object_id]
+                            ) AS [t2]
+                        ) AS [value], (
+                        SELECT [t4].[parent_object_id]
+                        FROM (
+                            SELECT TOP (1) [t3].[parent_object_id]
+                            FROM [sys].[foreign_key_columns] AS [t3]
+                            WHERE [t0].[object_id] = [t3].[constraint_object_id]
+                            ) AS [t4]
+                        ) AS [value2], (
+                        SELECT [t6].[referenced_column_id]
+                        FROM (
+                            SELECT TOP (1) [t5].[referenced_column_id]
+                            FROM [sys].[foreign_key_columns] AS [t5]
+                            WHERE [t0].[object_id] = [t5].[constraint_object_id]
+                            ) AS [t6]
+                        ) AS [value3], (
+                        SELECT [t8].[referenced_object_id]
+                        FROM (
+                            SELECT TOP (1) [t7].[referenced_object_id]
+                            FROM [sys].[foreign_key_columns] AS [t7]
+                            WHERE [t0].[object_id] = [t7].[constraint_object_id]
+                            ) AS [t8]
+                        ) AS [value4]
+                    FROM [sys].[foreign_keys] AS [t0]
+                    ) AS [t9]
+                ) AS [t14]
+            ) AS [t17]
+        ) AS [t20]
+    ) AS [t23]
+ORDER BY [t23].[value2], [t23].[value4], [t23].[value], [t23].[name]
+";
 
             return conn.Query<RelationshipInfo>(query);
         }
 
-        public static string GetLogicalFileNameFromBak(DbConnection conn, string bakName, string sqlServerPath)
+        public static IEnumerable<SQLServer.RelationshipInfo> GetCyclicRelationships(this DbConnection conn)
+        {
+            var Relationships = SQLServer.GetAllRelationships(conn);
+            var TablesWithRelatedTables = Relationships
+                .GroupBy(x => x.TableName)
+                .ToDictionary(x => x.Key, x => x.ToList());
+
+            var result = new List<SQLServer.RelationshipInfo>();
+            foreach (KeyValuePair<string, List<SQLServer.RelationshipInfo>> pair in TablesWithRelatedTables)
+            {
+                foreach (var value in pair.Value)
+                {
+                    var RelatedTable = value.RelatedTable;
+                    if (pair.Key != RelatedTable && TablesWithRelatedTables.ContainsKey(RelatedTable) && TablesWithRelatedTables[RelatedTable]
+                        .Select(x => x.RelatedTable).Contains(pair.Key))
+                    {
+                        result.Add(value);
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        public static string GetLogicalFileNameFromBak(this DbConnection conn, string bakName, string sqlServerPath)
         {
             var query = @"DECLARE @Table TABLE (LogicalName varchar(128),[PhysicalName] varchar(128), [Type] varchar, [FileGroupName] varchar(128), [Size] varchar(128),
             [MaxSize] varchar(128), [FileId]varchar(128), [CreateLSN]varchar(128), [DropLSN]varchar(128), [UniqueId]varchar(128), [ReadOnlyLSN]varchar(128), [ReadWriteLSN]varchar(128),
@@ -197,17 +260,17 @@ RESTORE FILELISTONLY
 
 SELECT @LogicalNameData";
 
-            return conn.Query(query).First().First().Value?.ToString();
+            return conn.Query<string>(query).First();
         }
 
-        public static string GetLogicalFileNameFromDB(DbConnection conn, string databaseName)
+        public static string GetLogicalFileNameFromDB(this DbConnection conn, string databaseName)
         {
             var query = @"select top 1 name from [" + databaseName + @"].sys.database_files";
 
-            return conn.Query(query, conn).First().First().Value?.ToString();
+            return conn.Query<string>(query, conn).First();
         }
 
-        public static IEnumerable<string> GetPrimaryKeyColumn(DbConnection conn, string tableName)
+        public static IEnumerable<string> GetPrimaryKeyColumn(this DbConnection conn, string tableName)
         {
             // Generated from
             //INFORMATION_SCHEMA.KEY_COLUMN_USAGE.GroupJoin(INFORMATION_SCHEMA.TABLE_CONSTRAINTS, o => new {o.TABLE_NAME, o.CONSTRAINT_CATALOG, o.CONSTRAINT_SCHEMA, o.CONSTRAINT_NAME },
@@ -234,7 +297,7 @@ SELECT @LogicalNameData";
                         ) AS [t3]
                     WHERE ([t3].[value] = 'PRIMARY KEY') AND ([t3].[TABLE_NAME] = '" + tableName + "')";
 
-            return conn.Query(query).Select(x => x.Values.First()?.ToString());
+            return conn.Query<string>(query);
         }
 
         public static StringBuilder GetSQLValueBuilder(string value)
@@ -242,7 +305,7 @@ SELECT @LogicalNameData";
             return value != null ? new StringBuilder("'").Append(value.Replace("'", "''")).Append("'") : SQLServer.NullBuilder;
         }
 
-        public static IEnumerable<string> GetTableNames(DbConnection conn)
+        public static IEnumerable<string> GetTableNames(this DbConnection conn)
         {
             // Generated From
             //sys.tables.Select(x => x.name).OrderBy(x => x)
@@ -251,7 +314,58 @@ SELECT @LogicalNameData";
                 FROM [sys].[tables] AS [t0]
                 ORDER BY [t0].[name]";
 
-            return conn.Query(query).Select(x => x.Values.First()?.ToString());
+            return conn.Query<string>(query);
+        }
+
+        public static IEnumerable<string> GetTableNamessInOrderOfValidDeletion(this DbConnection conn, string[] tablePrefixNamesToOmit, string mandatoryPrefix = null)
+        {
+            var Relationships = SQLServer.GetAllRelationships(conn);
+
+            var TablesWithRelatedTables = Relationships
+                .Where(x => !x.IsNullable)
+                .GroupBy(x => x.TableName)
+                .Select(x => new
+                {
+                    TableName = x.Key,
+                    RelatedTables = x.Select(y => y.RelatedTable).Distinct()
+                }).ToList();
+
+            var TableNamesToDelete = mandatoryPrefix != null ? SQLServer.GetTableNames(conn).Where(x => x.StartsWith(mandatoryPrefix) && !tablePrefixNamesToOmit.Any(y => x.StartsWith(y))).ToList() :
+                SQLServer.GetTableNames(conn).Where(x => !tablePrefixNamesToOmit.Any(y => x.StartsWith(y))).ToList();
+            var NumberOfTables = TableNamesToDelete.Count;
+            var OrderedToDeleleTables = new HashSet<string>();
+
+            int OldCount = -1, newCount = 0;
+            while (OrderedToDeleleTables.Count != OldCount)
+            {
+                foreach (var tableToInsert in TableNamesToDelete)
+                {
+                    if (!OrderedToDeleleTables.Contains(tableToInsert))
+                    {
+                        var IsOkayToInsert = true;
+
+                        foreach (var table in TablesWithRelatedTables)
+                        {
+                            if (table.TableName != tableToInsert && table.RelatedTables.Contains(tableToInsert)
+                                    && !OrderedToDeleleTables.Contains(table.TableName))
+                            {
+                                IsOkayToInsert = false;
+                                break;
+                            }
+                        }
+
+                        if (IsOkayToInsert)
+                        {
+                            OrderedToDeleleTables.Add(tableToInsert);
+                        }
+                    }
+                }
+
+                OldCount = newCount;
+                newCount = OrderedToDeleleTables.Count;
+            }
+
+            return OrderedToDeleleTables;
         }
 
         public static string InsertRowsCommand(string tableName, IEnumerable<object> data, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null)
@@ -292,7 +406,7 @@ SELECT @LogicalNameData";
             return builder.Length > 0 ? builder.ToString() : ";";
         }
 
-        public static void RestoreDB(DbConnection conn, string sqlServerPath, string sourceBak, string destinationDB, string stats = "5", bool assumeSourceLogicalFileNameIsCorrect = true)
+        public static void RestoreDB(this DbConnection conn, string sqlServerPath, string sourceBak, string destinationDB, string stats = "5", bool assumeSourceLogicalFileNameIsCorrect = true)
         {
             var sourceLogicalFileName = GetLogicalFileNameFromBak(conn, sourceBak, sqlServerPath);
 
@@ -324,7 +438,7 @@ SELECT @LogicalNameData";
             return UpdateRowsCommand(tableName, primaryKeyColumnName, columns.Select(x => x.ToStringStringDictionary()));
         }
 
-        private static IEnumerable<string> GetDependentCheckConstraints(DbConnection conn, string tableName, string columnName)
+        private static IEnumerable<string> GetDependentCheckConstraints(this DbConnection conn, string tableName, string columnName)
         {
             // Generated from
             //sys.check_constraints.GroupJoin(sys.columns, o => new {object_id = o.parent_object_id, column_id = o.parent_column_id}, i => new {i.object_id, i.column_id}, (o, i) => new {
@@ -365,10 +479,10 @@ SELECT @LogicalNameData";
                     ) AS [t6]
                 WHERE ([t6].[value2] = '" + tableName + @"') AND ([t6].[value] = '" + columnName + @"')";
 
-            return conn.Query(query).Select(x => x.Values.First()?.ToString());
+            return conn.Query<string>(query);
         }
 
-        private static IEnumerable<string> GetDependentDefaultConstraints(DbConnection conn, string tableName, string columnName)
+        private static IEnumerable<string> GetDependentDefaultConstraints(this DbConnection conn, string tableName, string columnName)
         {
             // Generated from
             //sys.default_constraints.GroupJoin(sys.columns, o => new {object_id = o.parent_object_id, column_id = o.parent_column_id}, i => new {i.object_id, i.column_id}, (o, i) => new {
@@ -409,10 +523,10 @@ SELECT @LogicalNameData";
                     ) AS [t6]
                 WHERE ([t6].[value2] = '" + tableName + @"') AND ([t6].[value] = '" + columnName + @"')";
 
-            return conn.Query(query).Select(x => x.Values.First()?.ToString());
+            return conn.Query<string>(query);
         }
 
-        private static IEnumerable<string> GetDependentForeignKeys(DbConnection conn, string tableName, string columnName)
+        private static IEnumerable<string> GetDependentForeignKeys(this DbConnection conn, string tableName, string columnName)
         {
             // Generated from
             //sys.foreign_keys.GroupJoin(sys.foreign_key_columns, o => o.object_id, i => i.constraint_object_id, (o, i) => new {
@@ -477,10 +591,10 @@ SELECT @LogicalNameData";
 		            ) AS [t11]
 	            WHERE ([t11].[value2] = '" + tableName + @"') AND ([t11].[value] = '" + columnName + @"')";
 
-            return conn.Query(query).Select(x => x.Values.First()?.ToString());
+            return conn.Query<string>(query);
         }
 
-        private static IEnumerable<string> GetDependentIndexes(DbConnection conn, string tableName, string columnName)
+        private static IEnumerable<string> GetDependentIndexes(this DbConnection conn, string tableName, string columnName)
         {
             // Generated from
             //sys.index_columns.GroupJoin(sys.indexes, o => new {o.object_id, o.index_id}, i => new {i.object_id, i.index_id}, (o, i) => new {
@@ -536,10 +650,10 @@ SELECT @LogicalNameData";
                     ) AS [t9]
                 WHERE ([t9].[value3] = '" + tableName + @"') AND ([t9].[value2] = '" + columnName + @"')";
 
-            return conn.Query(query).Select(x => x.Values.First()?.ToString());
+            return conn.Query<string>(query);
         }
 
-        private static IEnumerable<string> GetDependentPrimaryKey(DbConnection conn, string tableName, string columnName)
+        private static IEnumerable<string> GetDependentPrimaryKey(this DbConnection conn, string tableName, string columnName)
         {
             // Generated from
             //INFORMATION_SCHEMA.KEY_COLUMN_USAGE.GroupJoin(INFORMATION_SCHEMA.TABLE_CONSTRAINTS, o => new {o.TABLE_NAME, o.CONSTRAINT_CATALOG, o.CONSTRAINT_SCHEMA, o.CONSTRAINT_NAME },
@@ -567,10 +681,10 @@ SELECT @LogicalNameData";
                     ) AS [t3]
                 WHERE ([t3].[value] = 'PRIMARY KEY') AND ([t3].[TABLE_NAME] = '" + tableName + @"') AND ([t3].[COLUMN_NAME] = '" + columnName + @"')";
 
-            return conn.Query(query).Select(x => x.Values.First()?.ToString());
+            return conn.Query<string>(query);
         }
 
-        private static string GetForeignKeyName(DbConnection conn, string tableName, string columnName, string relatedTableName)
+        private static string GetForeignKeyName(this DbConnection conn, string tableName, string columnName, string relatedTableName)
         {
             // Generated from
             //sys.foreign_keys.GroupJoin(sys.foreign_key_columns, o => o.object_id, i => i.constraint_object_id, (o, i) => new
@@ -664,63 +778,13 @@ SELECT @LogicalNameData";
                 ) AS [t16]
             WHERE ([t16].[value3] = '" + tableName + "') AND ([t16].[value2] = '" + relatedTableName + "') AND ([t16].[value] = '" + columnName + "')";
 
-            return conn.Query(query).First().Values.First()?.ToString();
+            return conn.Query<string>(query).First();
         }
 
         private static StringBuilder GetMatchExpression(IDictionary<string, string> dict)
         {
             return dict.Aggregate(x => (new StringBuilder("([t0].[")).Append(x.Key).Append("] = ").Append(GetSQLValueBuilder(x.Value)),
                 (result, x) => result.Append(" AND [t0].[").Append(x.Key).Append("] = ").Append(GetSQLValueBuilder(x.Value)).Append(")"));
-        }
-
-        private static IEnumerable<string> GetTableNamessInOrderOfValidDeletion(DbConnection conn, string[] tablePrefixNamesToOmit, string mandatoryPrefix = null)
-        {
-            var Relationships = GetAllRelationships(conn);
-            var TablesWithRelatedTables = Relationships
-                .GroupBy(x => x.TableName)
-                .Select(x => new
-                {
-                    TableName = x.Key,
-                    RelatedTables = x.Select(y => y.RelatedTable).Distinct()
-                }).ToList();
-
-            var TableNamesToDelete = mandatoryPrefix != null ? GetTableNames(conn).Where(x => x.StartsWith(mandatoryPrefix) && !tablePrefixNamesToOmit.Any(y => x.StartsWith(y))).ToList() :
-                GetTableNames(conn).Where(x => !tablePrefixNamesToOmit.Any(y => x.StartsWith(y))).ToList();
-            var NumberOfTables = TableNamesToDelete.Count;
-            var OrderedToDeleleTables = new List<string>();
-
-            int OldCount = -1, newCount = 0;
-            while (OrderedToDeleleTables.Count != OldCount)
-            {
-                foreach (var tableToInsert in TableNamesToDelete)
-                {
-                    if (!OrderedToDeleleTables.Contains(tableToInsert))
-                    {
-                        var IsOkayToInsert = true;
-
-                        foreach (var table in TablesWithRelatedTables)
-                        {
-                            if (table.TableName != tableToInsert && table.RelatedTables.Contains(tableToInsert))
-                            {
-                                if (!OrderedToDeleleTables.Contains(table.TableName))
-                                {
-                                    IsOkayToInsert = false;
-                                }
-                            }
-                        }
-
-                        if (IsOkayToInsert)
-                        {
-                            OrderedToDeleleTables.Add(tableToInsert);
-                        }
-                    }
-                }
-
-                OldCount = newCount;
-                newCount = OrderedToDeleleTables.Count;
-            }
-
-            return OrderedToDeleleTables.Concat(TableNamesToDelete.Except(Relationships.Select(x => x.TableName).ToList()).ToList()).ToList();
         }
 
         private static string InsertRowsCommand(string tableName, IEnumerable<IDictionary<string, string>> data, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null)
@@ -771,8 +835,15 @@ SELECT @LogicalNameData";
         public class RelationshipInfo
         {
             public string ColumnName { get; set; }
+
             public string ForeignKeyName { get; set; }
+
+            public bool IsNullable { get; set; }
+
+            public string ReferencedColumnName { get; set; }
+
             public string RelatedTable { get; set; }
+
             public string TableName { get; set; }
         }
     }

@@ -9,22 +9,22 @@ namespace Application.Data.XLSX
 {
     public static class XLSX
     {
-        public static OfficeOpenXml.ExcelPackage GetXLSXReport(IEnumerable<IEnumerable<IEnumerable<string>>> workSheetsData, eOrientation orientation, IEnumerable<string> worksheetNames = null, string title = null, bool addDate = false, bool includePageNumbers = false)
+        public static OfficeOpenXml.ExcelPackage DictionaryToXLSX(IDictionary<string, List<List<string>>> workSheetsData,
+            eOrientation orientation = eOrientation.Portrait, string title = null, bool addDate = false, bool includePageNumbers = false)
         {
             foreach (var workSheetData in workSheetsData)
             {
-                if (workSheetData.IsNullOrEmpty())
+                if (workSheetData.Value.IsNullOrEmpty())
                     throw new ApplicationException("No worksheet data was supplied.");
-                if (workSheetData.Any(x => x.IsNullOrEmpty()))
+                if (workSheetData.Value.Any(x => x.IsNullOrEmpty()))
                     throw new ApplicationException("There was an empty worksheet.");
             }
 
             var document = new ExcelPackage();
             var WorkSheetNumber = 1;
-            var WorksheetNames = (worksheetNames ?? Enumerable.Range(1, workSheetsData.Count()).Select(x => "WorkSheet" + x)).ToList();
             foreach (var workSheetData in workSheetsData)
             {
-                var WorkSheet = document.Workbook.Worksheets.Add(WorksheetNames[WorkSheetNumber]);
+                var WorkSheet = document.Workbook.Worksheets.Add(workSheetData.Key);
                 WorkSheet.PrinterSettings.Orientation = orientation;
                 if (title != null)
                     WorkSheet.HeaderFooter.FirstHeader.CenteredText = @"&C&""-,Bold""&12 " + title;
@@ -37,11 +37,11 @@ namespace Application.Data.XLSX
                     WorkSheet.HeaderFooter.OddFooter.RightAlignedText = "&R&9 " + string.Format("Page {0} of {1}", ExcelHeaderFooter.PageNumber, ExcelHeaderFooter.NumberOfPages);
                 }
 
-                WorkSheet.Cells[1, 1, 1, workSheetData.First().Count()].Style.Font.Bold = true;
+                WorkSheet.Cells[1, 1, 1, workSheetData.Value.First().Count()].Style.Font.Bold = true;
                 WorkSheet.PrinterSettings.RepeatRows = new ExcelAddress(String.Format("'{1}'!${0}:${0}", 1, "WorkSheet" + WorkSheetNumber));
                 WorkSheet.PrinterSettings.PageOrder = ePageOrder.OverThenDown;
 
-                WorkSheet.Cells.LoadFromArrays(workSheetData.Select(x => x.ToArray()));
+                WorkSheet.Cells.LoadFromArrays(workSheetData.Value.Select(x => x.ToArray()));
                 WorkSheet.Cells.AutoFitColumns();
 
                 WorkSheetNumber++;

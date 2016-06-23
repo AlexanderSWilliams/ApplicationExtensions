@@ -25,12 +25,14 @@
 // WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 using Application.ObjectExtensions;
+using Application.TypeExtensions;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Dynamic;
 using System.Linq;
+using System.Reflection;
 
 namespace Application.Data
 {
@@ -44,16 +46,27 @@ namespace Application.Data
             return cmd.ExecuteNonQuery();
         }
 
-        public static List<T> Query<T>(this DbConnection connection, string sql, params object[] args) where T : new()
+        public static List<T> Query<T>(this DbConnection connection, string sql, params object[] args)
         {
             var result = new List<T>();
+
+            var HasDefaultConstructor = typeof(T).GetInstanceOfReferenceType() != null;
             using (var rdr = CreateCommand(sql, connection, args).ExecuteReader())
             {
                 while (rdr.Read())
                 {
-                    var row = new T();
-                    rdr.RecordToDictionary().InjectInto(ref row);
-                    result.Add(row);
+                    if (HasDefaultConstructor)
+                    {
+                        var row = (T)typeof(T).GetInstanceOfReferenceType();
+                        rdr.RecordToDictionary().InjectInto(ref row);
+                    }
+                    else
+                    {
+                        if (rdr.FieldCount > 1)
+                            throw new ApplicationException("The specified return type does not have a default constructor and the returned data has more than one column.");
+
+                        result.Add((T)typeof(T).ParseValue(rdr.GetValue(0)));
+                    }
                 }
                 rdr.Close();
             }
