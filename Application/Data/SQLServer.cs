@@ -121,26 +121,26 @@ namespace Application.Data.SQLServer
             //    TableName = i.First().name
             //})
             //.GroupJoin(sys.tables, o => o.referenced_object_id, i => i.object_id, (o, i) => new {
+            //    o.ColumnName,
             //    o.ForeignKeyName,
             //    IsNullable = o.is_nullable,
-            //    o.ColumnName,
             //    o.ReferencedColumnName,
-            //    o.TableName,
             //    RelatedTable = i.First().name,
+            //    o.TableName,
             //})
             //.OrderBy(x => x.TableName).ThenBy(x => x.RelatedTable).ThenBy(x => x.ColumnName).ThenBy(x => x.ForeignKeyName)
 
             var query = @"
-SELECT [t23].[name] AS [ForeignKeyName], [t23].[value5] AS [IsNullable], [t23].[value] AS [ColumnName], [t23].[value3] AS [ReferencedColumnName], [t23].[value2] AS [TableName], [t23].[value4] AS [RelatedTable]
+SELECT [t23].[value] AS [ColumnName], [t23].[name] AS [ForeignKeyName], [t23].[value5] AS [IsNullable], [t23].[value3] AS [ReferencedColumnName], [t23].[value2] AS [RelatedTable], [t23].[value22] AS [TableName]
 FROM (
-    SELECT [t20].[name], [t20].[value5], [t20].[value], [t20].[value3], [t20].[value2], (
+    SELECT [t20].[value], [t20].[name], [t20].[value5], [t20].[value3], (
         SELECT [t22].[name]
         FROM (
             SELECT TOP (1) [t21].[name]
             FROM [sys].[tables] AS [t21]
             WHERE [t20].[value4] = [t21].[object_id]
             ) AS [t22]
-        ) AS [value4]
+        ) AS [value2], [t20].[value2] AS [value22]
     FROM (
         SELECT [t17].[name], [t17].[value4], [t17].[value5], [t17].[value], [t17].[value3], (
             SELECT [t19].[name]
@@ -211,7 +211,7 @@ FROM (
             ) AS [t17]
         ) AS [t20]
     ) AS [t23]
-ORDER BY [t23].[value2], [t23].[value4], [t23].[value], [t23].[name]
+ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
 ";
 
             return conn.Query<RelationshipInfo>(query);
@@ -373,10 +373,12 @@ SELECT @LogicalNameData";
             return InsertRowsCommand(tableName, data.Select(x => x.ToStringStringDictionary()), columnsToReturn, indentityInsert, columnsToExclude);
         }
 
-        public static string MergeRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<IDictionary<string, string>> data)
+        public static string MergeRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<object> data)
         {
+            var dictData = data.Select(x => x.ToStringStringDictionary());
+
             var TempTableName = "__" + tableName + "Temp";
-            var columnNames = data.Select(x => x.Keys).First();
+            var columnNames = dictData.Select(x => x.Keys).First();
             var columnNamesDelimited = columnNames.Aggregate(x => new StringBuilder(x), (result, x) => result.Append(", ").Append(x));
             var setColumnsCommand = columnNames.Where(x => x != primaryKeyColumnName)
                                         .Aggregate(x => new StringBuilder("[").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x),
@@ -386,7 +388,7 @@ SELECT @LogicalNameData";
                 .Append(@"]
 
 					SET IDENTITY_INSERT [").Append(TempTableName).Append("] ON").Append(System.Environment.NewLine)
-                                    .Append(InsertRowsCommand(TempTableName, data))
+                                    .Append(InsertRowsCommand(TempTableName, dictData))
                                     .Append("SET IDENTITY_INSERT [").Append(TempTableName).Append(@"] OFF
 
 					UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON [").Append(TempTableName)

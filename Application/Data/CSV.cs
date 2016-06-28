@@ -22,6 +22,7 @@ namespace Application.Data.CSV
             var InQuotes = false;
             var Length = csv.Length;
 
+            var SpecialBytes = new HashSet<byte> { delimiter, 13, 10 };
             for (var i = 0; i < Length; i++)
             {
                 var ch = csv[i];
@@ -36,7 +37,7 @@ namespace Application.Data.CSV
                                 cell.Add(34);
                                 i++;
                             }
-                            else if (csv[i - 1] != 34 && csv[nextIndex] != delimiter && csv[nextIndex] != 13 && csv[nextIndex] != 10)
+                            else if (csv[i - 1] != 34 && !SpecialBytes.Contains(csv[nextIndex]))
                                 cell.Add(34);
                             else
                                 InQuotes = false;
@@ -94,6 +95,7 @@ namespace Application.Data.CSV
             var InQuotes = false;
             var Length = csv.Length;
 
+            var SpecialCharacters = new HashSet<char> { delimiter, '\r', '\n' };
             for (var i = 0; i < Length; i++)
             {
                 var ch = csv[i];
@@ -108,7 +110,7 @@ namespace Application.Data.CSV
                                 cell.Append('"');
                                 i++;
                             }
-                            else if (csv[i - 1] != '"' && csv[nextIndex] != delimiter && csv[nextIndex] != '\r' && csv[nextIndex] != '\n')
+                            else if (csv[i - 1] != '"' && !SpecialCharacters.Contains(csv[nextIndex]))
                                 cell.Append('"');
                             else
                                 InQuotes = false;

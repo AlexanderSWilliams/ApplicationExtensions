@@ -59,6 +59,7 @@ namespace Application.Data
                     {
                         var row = (T)typeof(T).GetInstanceOfReferenceType();
                         rdr.RecordToDictionary().InjectInto(ref row);
+                        result.Add(row);
                     }
                     else
                     {
