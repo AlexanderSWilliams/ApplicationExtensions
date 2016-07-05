@@ -1,9 +1,48 @@
-﻿using System;
+﻿using Application.IEnumerableExtensions;
+using Application.Types;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Application.StringExtensions
 {
     public static class StringExtensions
     {
+        public static List<TextWord> GetWords(this string text, string pattern, bool ignoreCase = true)
+        {
+            var result = new List<TextWord>();
+            var options = ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None;
+            foreach (Match match in Regex.Matches(text, pattern, options))
+            {
+                result.Add(new TextWord(text, pattern, match.Index, ignoreCase));
+            }
+
+            return result;
+        }
+
+        public static int IndexOfFirstNonWhiteSpace(this string text)
+        {
+            return text.IndexOf<char>(c => !char.IsWhiteSpace(c));
+        }
+
+        public static int IndexOfFirstWhiteSpace(this string text)
+        {
+            return text.IndexOf<char>(c => char.IsWhiteSpace(c));
+        }
+
+        public static int IndexOfLastNonWhiteSpace(this string text)
+        {
+            var Indices = text.IndicesOf<char>(c => !char.IsWhiteSpace(c));
+            return Indices.Any() ? Indices.Last() : -1;
+        }
+
+        public static int IndexOfLastWhiteSpace(this string text)
+        {
+            var Indices = text.IndicesOf<char>(c => char.IsWhiteSpace(c));
+            return Indices.Any() ? Indices.Last() : -1;
+        }
+
         public static bool? ToBool(this string obj)
         {
             bool value;

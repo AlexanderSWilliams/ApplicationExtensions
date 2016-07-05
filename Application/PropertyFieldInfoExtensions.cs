@@ -155,7 +155,7 @@ namespace Application.PropertyFieldInfoExtensions
                 return Value.ToString();
             Type = Nullable.GetUnderlyingType(Type) ?? Type;
 
-            return Type.IsEnum ? (useEnumValue ? Convert.ChangeType(Value, Enum.GetUnderlyingType(Type)).ToString() : Value.ToString()) : null;
+            return Type.IsEnum && useEnumValue ? Convert.ChangeType(Value, Enum.GetUnderlyingType(Type)).ToString() : Value.ToString();
         }
 
         public static object GetValue(this PropertyFieldInfo propertyFieldInfo, object obj, object[] index = null)

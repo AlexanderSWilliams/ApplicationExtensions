@@ -116,7 +116,8 @@ namespace Application.ObjectExtensions
             if (ObjectDictionary != null)
                 return ObjectDictionary.ToDictionary(x => x.Key, x => x.Value.ToSafeString());
 
-            return data.GetType().DBPrimativePropsAndFields().ToDictionary(x => x.Name(), x => x.GetStringValue(data));
+            var Type = data.GetType();
+            return Type.DBPrimativePropsAndFields().Concat(Type.ComplexPropsAndFields()).ToDictionary(x => x.Name(), x => x.GetStringValue(data));
         }
     }
 }

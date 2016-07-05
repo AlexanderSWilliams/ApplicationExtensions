@@ -112,6 +112,38 @@ namespace Application.IEnumerableExtensions
                 return -1;
         }
 
+        public static int IndexOf<TSource>(this IEnumerable<TSource> source,
+            Func<TSource, bool> predicate)
+        {
+            int i = 0;
+
+            foreach (TSource element in source)
+            {
+                if (predicate(element))
+                    return i;
+
+                i++;
+            }
+
+            return -1;
+        }
+
+        public static List<int> IndicesOf<TSource>(this IEnumerable<TSource> source,
+            Func<TSource, bool> predicate)
+        {
+            int i = 0;
+
+            var result = new List<int>();
+            foreach (TSource element in source)
+            {
+                if (predicate(element))
+                    result.Add(i);
+                i++;
+            }
+
+            return result;
+        }
+
         public static bool IsNullOrEmpty<T>(this IEnumerable<T> source)
         {
             return source == null || !source.Any();
