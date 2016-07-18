@@ -4,13 +4,15 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace Application.Data.XLSX
 {
     public static class XLSX
     {
-        public static OfficeOpenXml.ExcelPackage DictionaryToXLSX(IDictionary<string, List<List<string>>> workSheetsData,
-            eOrientation orientation = eOrientation.Portrait, string title = null, bool addDate = false, bool includePageNumbers = false)
+        public static Stream DictionaryToXLSX(this Stream stream, IDictionary<string, List<List<string>>> workSheetsData,
+                eOrientation orientation = eOrientation.Portrait, string title = null, bool addDate = false, bool includePageNumbers = false)
         {
             foreach (var workSheetData in workSheetsData)
             {
@@ -47,13 +49,14 @@ namespace Application.Data.XLSX
                 WorkSheetNumber++;
             }
 
-            return document;
+            document.SaveAs(stream);
+            return stream;
         }
 
-        public static Dictionary<string, List<List<string>>> XLSXToEntityDataDictionary(string xlsxPath)
+        public static Dictionary<string, List<List<string>>> XLSXToEntityDataDictionary(Stream xlsx)
         {
             var Result = new Dictionary<string, List<List<string>>>();
-            using (var manualPackage = new ExcelPackage(new FileInfo(xlsxPath)))
+            using (var manualPackage = new ExcelPackage(xlsx))
             {
                 var WorkSheets = manualPackage.Workbook.Worksheets;
                 foreach (var worksheet in WorkSheets)
