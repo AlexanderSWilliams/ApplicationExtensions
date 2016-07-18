@@ -270,7 +270,7 @@ SELECT @LogicalNameData";
             return conn.Query<string>(query, conn).First();
         }
 
-        public static IEnumerable<string> GetPrimaryKeyColumn(this DbConnection conn, string tableName)
+        public static string GetPrimaryKeyColumn(this DbConnection conn, string tableName)
         {
             // Generated from
             //INFORMATION_SCHEMA.KEY_COLUMN_USAGE.GroupJoin(INFORMATION_SCHEMA.TABLE_CONSTRAINTS, o => new {o.TABLE_NAME, o.CONSTRAINT_CATALOG, o.CONSTRAINT_SCHEMA, o.CONSTRAINT_NAME },
@@ -297,7 +297,7 @@ SELECT @LogicalNameData";
                         ) AS [t3]
                     WHERE ([t3].[value] = 'PRIMARY KEY') AND ([t3].[TABLE_NAME] = '" + tableName + "')";
 
-            return conn.Query<string>(query);
+            return conn.Query<string>(query).First();
         }
 
         public static StringBuilder GetSQLValueBuilder(string value)
