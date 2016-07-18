@@ -32,7 +32,10 @@ namespace Application.Data.CSV
                         if (InQuotes)
                         {
                             var nextIndex = i + 1;
-                            if (nextIndex != Length && csv[nextIndex] == 34)
+                            if (nextIndex >= Length)
+                                break;
+
+                            if (csv[nextIndex] == 34)
                             {
                                 cell.Add(34);
                                 i++;
@@ -105,7 +108,10 @@ namespace Application.Data.CSV
                         if (InQuotes)
                         {
                             var nextIndex = i + 1;
-                            if (nextIndex != Length && csv[nextIndex] == '"')
+                            if (nextIndex >= Length)
+                                break;
+
+                            if (csv[nextIndex] == '"')
                             {
                                 cell.Append('"');
                                 i++;
@@ -204,7 +210,7 @@ namespace Application.Data.CSV
                         builder.Append(delimiter);
 
                     if (value == null)
-                        builder.Append("");
+                        builder.Append(@"""");
                     else if (value.IndexOfAny(SpecialCharacterArray) != -1)
                         builder.AppendFormat("\"{0}\"", value.Replace("\"", "\"\""));
                     else
