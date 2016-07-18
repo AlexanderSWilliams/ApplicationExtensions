@@ -42,6 +42,7 @@ namespace Application.Data
 
         public static int Execute(this DbConnection connection, string sql, params object[] args)
         {
+            VerifyOpenConnection(connection);
             var cmd = CreateCommand(sql, connection, args);
             return cmd.ExecuteNonQuery();
         }
@@ -49,6 +50,7 @@ namespace Application.Data
         public static List<T> Query<T>(this DbConnection connection, string sql, params object[] args)
         {
             var result = new List<T>();
+            VerifyOpenConnection(connection);
 
             var HasDefaultConstructor = typeof(T).GetInstanceOfReferenceType() != null;
             using (var rdr = CreateCommand(sql, connection, args).ExecuteReader())
@@ -77,6 +79,7 @@ namespace Application.Data
         public static List<Dictionary<string, object>> Query(this DbConnection connection, string sql, params object[] args)
         {
             var result = new List<Dictionary<string, object>>();
+            VerifyOpenConnection(connection);
             using (var rdr = CreateCommand(sql, connection, args).ExecuteReader())
             {
                 while (rdr.Read())
@@ -87,6 +90,24 @@ namespace Application.Data
             }
 
             return result;
+        }
+
+        public static void VerifyOpenConnection(DbConnection connection)
+        {
+            if (connection.State == ConnectionState.Broken)
+            {
+                connection.Close();
+                connection.Open();
+            }
+
+            if (connection.State == ConnectionState.Closed || connection.State == ConnectionState.Executing || connection.State == ConnectionState.Fetching)
+                connection.Open();
+
+            if (connection.State == ConnectionState.Connecting)
+            {
+                System.Threading.Thread.Sleep(10);
+                VerifyOpenConnection(connection);
+            }
         }
 
         private static void AddParam(this DbCommand cmd, object value)
