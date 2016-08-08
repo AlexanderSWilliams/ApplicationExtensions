@@ -24,6 +24,15 @@ namespace Application.IDictionaryExtensions
             return null;
         }
 
+        public static S GetValueOrThrow<T, S>(this IDictionary<T, S> dict, T key)
+        {
+            S value;
+            if (key != null && dict.TryGetValue(key, out value))
+                return value;
+
+            throw new KeyNotFoundException("The key \"" + key + "\" was not present.");
+        }
+
         public static void InjectFromObjectDictionary(this IDictionary<string, object> sourceDictionary, object target)
         {
             var CommonProps = target.GetType().DBPrimativeAssignablePropsAndFields().GroupJoin(sourceDictionary, o => o.Name(), i => i.Key, (o, i) => new
@@ -67,6 +76,18 @@ namespace Application.IDictionaryExtensions
                 }
                 prop.targetProp.SetValue(target, obj);
             }
+        }
+
+        public static IDictionary<S, T> Merge<S, T>(this IDictionary<S, T> destination, IDictionary<S, T> from)
+        {
+            foreach (var pair in from)
+            {
+                if (destination.ContainsKey(pair.Key))
+                    destination[pair.Key] = pair.Value;
+                else
+                    destination.Add(pair.Key, pair.Value);
+            }
+            return destination;
         }
 
         public static List<List<string>> ToListOfListOfStrings<K, V>(this IEnumerable<IDictionary<K, V>> source)

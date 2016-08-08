@@ -217,6 +217,18 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
             return conn.Query<RelationshipInfo>(query);
         }
 
+        public static IEnumerable<string> GetColumnNames(this DbConnection conn, string tableName)
+        {
+            return conn.Query<string>(@"select
+               syscolumns.name as [Column]
+            from
+               sysobjects, syscolumns
+            where sysobjects.id = syscolumns.id
+            and   sysobjects.xtype = 'u'
+            and   sysobjects.name = '" + tableName + @"'
+            order by syscolumns.name");
+        }
+
         public static IEnumerable<SQLServer.RelationshipInfo> GetCyclicRelationships(this DbConnection conn)
         {
             var Relationships = SQLServer.GetAllRelationships(conn);
@@ -322,7 +334,7 @@ SELECT @LogicalNameData";
             var Relationships = SQLServer.GetAllRelationships(conn);
 
             var TablesWithRelatedTables = Relationships
-                .Where(x => !x.IsNullable)
+                .Where(x => !x.IsNullable || tablePrefixNamesToOmit.Contains(x.TableName))
                 .GroupBy(x => x.TableName)
                 .Select(x => new
                 {

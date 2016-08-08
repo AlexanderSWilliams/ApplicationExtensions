@@ -14,14 +14,6 @@ namespace Application.Data.XLSX
         public static Stream DictionaryToXLSX(this Stream stream, IDictionary<string, List<List<string>>> workSheetsData,
                 eOrientation orientation = eOrientation.Portrait, string title = null, bool addDate = false, bool includePageNumbers = false)
         {
-            foreach (var workSheetData in workSheetsData)
-            {
-                if (workSheetData.Value.IsNullOrEmpty())
-                    throw new ApplicationException("No worksheet data was supplied.");
-                if (workSheetData.Value.Any(x => x.IsNullOrEmpty()))
-                    throw new ApplicationException("There was an empty worksheet.");
-            }
-
             var document = new ExcelPackage();
             var WorkSheetNumber = 1;
             foreach (var workSheetData in workSheetsData)

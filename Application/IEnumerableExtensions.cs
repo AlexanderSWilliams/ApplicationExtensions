@@ -364,6 +364,34 @@ namespace Application.IEnumerableExtensions
             }
         }
 
+        public static IEnumerable<TResult> SelectManySafely<TSource, TResult>(
+            this IEnumerable<TSource> source,
+            Func<TSource, IEnumerable<TResult>> selector)
+        {
+            return source.SelectManySafely((value, index) => selector(value), (o, seq) => seq);
+        }
+
+        public static IEnumerable<TResult> SelectManySafely<TSource, TCollection, TResult>(
+            this IEnumerable<TSource> source,
+            Func<TSource, int, IEnumerable<TCollection>> collectionSelector,
+            Func<TSource, TCollection, TResult> resultSelector)
+        {
+            if (source == null)
+                yield break;
+
+            int index = 0;
+            foreach (var item in source)
+            {
+                var Collection = collectionSelector(item, index++);
+                if (Collection == null)
+                    continue;
+                foreach (var collectionItem in Collection)
+                {
+                    yield return resultSelector(item, collectionItem);
+                }
+            }
+        }
+
         public static IEnumerable<List<T>> Split<T>(this IEnumerable<T> enumerable, T[][] seperator, bool removeEmptyEntries = false, IEqualityComparer<T> comparer = null)
         {
             comparer = comparer ?? EqualityComparer<T>.Default;
