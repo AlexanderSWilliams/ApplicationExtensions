@@ -12,6 +12,13 @@ namespace Application.Data.SQLServer
     {
         public static StringBuilder NullBuilder = new StringBuilder("NULL");
 
+        public enum NullableOption
+        {
+            OnlyNullable,
+            OnlyNonNullable,
+            Both
+        }
+
         public static string AutoBackupDBCommand(this DbConnection conn, string sqlServerPath, string dbName, string stats = "10")
         {
             var sourceLogicalFileName = GetLogicalFileNameFromDB(conn, dbName);
@@ -253,6 +260,37 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
             return result;
         }
 
+        public static IEnumerable<string> GetDepedentTables(DbConnection conn, string tableName,
+            NullableOption nullableOption, int depth = int.MaxValue)
+        {
+            var Relationships = SQLServer.GetAllRelationships(conn);
+            if (nullableOption == NullableOption.OnlyNullable)
+                Relationships = Relationships.Where(x => x.IsNullable).ToList();
+            if (nullableOption == NullableOption.OnlyNonNullable)
+                Relationships = Relationships.Where(x => !x.IsNullable).ToList();
+
+            depth--;
+            var Result = new HashSet<string>(Relationships.Where(x => !x.IsNullable && x.RelatedTable == tableName).Select(x => x.TableName));
+
+            int OldCount = 0;
+            while (Result.Count != OldCount && depth > 0)
+            {
+                OldCount = Result.Count;
+                depth--;
+
+                foreach (var table in Result.ToList())
+                {
+                    var result = Relationships.Where(x => x.RelatedTable == table).Select(x => x.TableName);
+                    foreach (var relatedTable in result)
+                    {
+                        Result.Add(relatedTable);
+                    }
+                }
+            }
+
+            return Result;
+        }
+
         public static string GetLogicalFileNameFromBak(this DbConnection conn, string bakName, string sqlServerPath)
         {
             var query = @"DECLARE @Table TABLE (LogicalName varchar(128),[PhysicalName] varchar(128), [Type] varchar, [FileGroupName] varchar(128), [Size] varchar(128),
@@ -385,7 +423,7 @@ SELECT @LogicalNameData";
             return InsertRowsCommand(tableName, data.Select(x => x.ToStringStringDictionary()), columnsToReturn, indentityInsert, columnsToExclude);
         }
 
-        public static string MergeRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<object> data)
+        public static string MergeRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<object> data, string setCMD = null)
         {
             var dictData = data.Select(x => x.ToStringStringDictionary());
 
@@ -396,26 +434,29 @@ SELECT @LogicalNameData";
                                         .Aggregate(x => new StringBuilder("[").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x),
                                             (result, x) => result.Append(", [").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x));
 
-            var builder = new StringBuilder("SELECT TOP 0 ").Append(columnNamesDelimited).Append(" INTO [").Append(TempTableName).Append("] from [").Append(tableName)
+            var builder = new StringBuilder("BEGIN TRANSACTION\r\nSELECT TOP 0 ").Append(columnNamesDelimited).Append(" INTO [").Append(TempTableName).Append("] from [").Append(tableName)
                 .Append(@"]
 
 					SET IDENTITY_INSERT [").Append(TempTableName).Append("] ON").Append(System.Environment.NewLine)
-                                    .Append(InsertRowsCommand(TempTableName, dictData))
-                                    .Append("SET IDENTITY_INSERT [").Append(TempTableName).Append(@"] OFF
+                                    .Append(SQLServer.InsertRowsCommand(TempTableName, dictData))
+                                    .Append("SET IDENTITY_INSERT [").Append(TempTableName).Append(@"] OFF;");
 
-					UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON [").Append(TempTableName)
-                            .Append("].[").Append(primaryKeyColumnName).Append(@"] = [").Append(tableName).Append(@"].[").Append(primaryKeyColumnName).Append(@"];
+            if (setCMD != null)
+                builder.Append("UPDATE [").Append(TempTableName).Append("] ").Append(setCMD).Append(";");
+
+            builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON [").Append(TempTableName)
+                    .Append("].[").Append(primaryKeyColumnName).Append(@"] = [").Append(tableName).Append(@"].[").Append(primaryKeyColumnName).Append(@"];
 
 					SET IDENTITY_INSERT [").Append(tableName).Append(@"] ON
 					INSERT INTO [")
-                            .Append(tableName).Append(@"] (").Append(columnNamesDelimited).Append(") SELECT ").Append(columnNamesDelimited).Append(" FROM [").Append(TempTableName).Append(@"] AS [t0]
+                    .Append(tableName).Append(@"] (").Append(columnNamesDelimited).Append(") SELECT ").Append(columnNamesDelimited).Append(" FROM [").Append(TempTableName).Append(@"] AS [t0]
 						WHERE NOT (EXISTS(
 							SELECT TOP (1) NULL AS [EMPTY]
 							FROM [").Append(tableName).Append(@"] AS [t1]
 							WHERE [t0].[").Append(primaryKeyColumnName).Append(@"] = [t1].[").Append(primaryKeyColumnName).Append(@"]));
 					SET IDENTITY_INSERT [").Append(tableName).Append(@"] OFF
 
-					DROP TABLE [").Append(TempTableName).Append("];");
+					DROP TABLE [").Append(TempTableName).Append("];\r\nCOMMIT TRANSACTION;");
 
             return builder.Length > 0 ? builder.ToString() : ";";
         }
