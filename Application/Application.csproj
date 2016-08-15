@@ -51,6 +51,7 @@
     <Compile Include="Math\Random.cs" />
     <Compile Include="Math\Rounding.cs" />
     <Compile Include="GenericExtensions.cs" />
+    <Compile Include="Network\FTP.cs" />
     <Compile Include="ObjectExtensions.cs" />
     <Compile Include="DBPrimativeTypes.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
