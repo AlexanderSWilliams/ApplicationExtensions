@@ -423,7 +423,7 @@ SELECT @LogicalNameData";
             return InsertRowsCommand(tableName, data.Select(x => x.ToStringStringDictionary()), columnsToReturn, indentityInsert, columnsToExclude);
         }
 
-        public static string MergeRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<object> data, string setCMD = null)
+        public static string MergeRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<object> data, bool tableHasIdentity, string setCMD = null, bool deleteUnspecifiedRows = false)
         {
             var dictData = data.Select(x => x.ToStringStringDictionary());
 
@@ -434,29 +434,41 @@ SELECT @LogicalNameData";
                                         .Aggregate(x => new StringBuilder("[").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x),
                                             (result, x) => result.Append(", [").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x));
 
-            var builder = new StringBuilder("BEGIN TRANSACTION\r\nSELECT TOP 0 ").Append(columnNamesDelimited).Append(" INTO [").Append(TempTableName).Append("] from [").Append(tableName)
-                .Append(@"]
+            var builder = new StringBuilder("SELECT TOP 0 ").Append(columnNamesDelimited).Append(" INTO [").Append(TempTableName).Append("] from [").Append(tableName)
+                .Append(@"];");
 
-					SET IDENTITY_INSERT [").Append(TempTableName).Append("] ON").Append(System.Environment.NewLine)
-                                    .Append(SQLServer.InsertRowsCommand(TempTableName, dictData))
-                                    .Append("SET IDENTITY_INSERT [").Append(TempTableName).Append(@"] OFF;");
+            if (tableHasIdentity)
+                builder.Append("SET IDENTITY_INSERT [").Append(TempTableName).Append("] ON").Append(System.Environment.NewLine);
+
+            builder.Append(SQLServer.InsertRowsCommand(TempTableName, dictData));
+
+            if (tableHasIdentity)
+                builder.Append("SET IDENTITY_INSERT [").Append(TempTableName).Append(@"] OFF;");
 
             if (setCMD != null)
                 builder.Append("UPDATE [").Append(TempTableName).Append("] ").Append(setCMD).Append(";");
 
             builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON [").Append(TempTableName)
-                    .Append("].[").Append(primaryKeyColumnName).Append(@"] = [").Append(tableName).Append(@"].[").Append(primaryKeyColumnName).Append(@"];
+                    .Append("].[").Append(primaryKeyColumnName).Append(@"] = [").Append(tableName).Append(@"].[").Append(primaryKeyColumnName).Append(@"];");
 
-					SET IDENTITY_INSERT [").Append(tableName).Append(@"] ON
-					INSERT INTO [")
+            if (tableHasIdentity)
+                builder.Append("SET IDENTITY_INSERT [").Append(tableName).Append(@"] ON;");
+
+            builder.Append(@"INSERT INTO [")
                     .Append(tableName).Append(@"] (").Append(columnNamesDelimited).Append(") SELECT ").Append(columnNamesDelimited).Append(" FROM [").Append(TempTableName).Append(@"] AS [t0]
 						WHERE NOT (EXISTS(
 							SELECT TOP (1) NULL AS [EMPTY]
 							FROM [").Append(tableName).Append(@"] AS [t1]
-							WHERE [t0].[").Append(primaryKeyColumnName).Append(@"] = [t1].[").Append(primaryKeyColumnName).Append(@"]));
-					SET IDENTITY_INSERT [").Append(tableName).Append(@"] OFF
+							WHERE [t0].[").Append(primaryKeyColumnName).Append(@"] = [t1].[").Append(primaryKeyColumnName).Append(@"]));");
 
-					DROP TABLE [").Append(TempTableName).Append("];\r\nCOMMIT TRANSACTION;");
+            if (tableHasIdentity)
+                builder.Append("SET IDENTITY_INSERT [").Append(tableName).Append(@"] OFF;");
+
+            if (deleteUnspecifiedRows)
+                builder.Append("DELETE a FROM [" + tableName + "] a LEFT OUTER JOIN [" + TempTableName +
+                    "] b ON a.[" + primaryKeyColumnName + "] = b.[" + primaryKeyColumnName + "] WHERE b.[" + primaryKeyColumnName + "] IS NULL;");
+
+            builder.Append("DROP TABLE[").Append(TempTableName).Append("];");
 
             return builder.Length > 0 ? builder.ToString() : ";";
         }
@@ -486,6 +498,11 @@ SELECT @LogicalNameData";
                 conn.Execute(@"ALTER DATABASE [" + destinationDB + @"] MODIFY FILE (Name = '" + destinationLogicalFileName + @"', NEWNAME = " + destinationDB + @");
 				ALTER DATABASE [" + destinationDB + @"] MODIFY FILE (Name = '" + destinationLogicalFileName + @"_log',NEWNAME = " + destinationDB + @"_log);");
             }
+        }
+
+        public static bool TableHasIdentity(this DbConnection conn, string tableName)
+        {
+            return conn.Query<int>("SELECT OBJECTPROPERTY(OBJECT_ID('" + tableName + "'), 'TableHasIdentity')").First() == 1;
         }
 
         public static string UpdateRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<object> columns)

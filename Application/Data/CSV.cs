@@ -210,7 +210,7 @@ namespace Application.Data.CSV
                         builder.Append(delimiter);
 
                     if (value == null)
-                        builder.Append(@"""");
+                        builder.Append("");
                     else if (value.IndexOfAny(SpecialCharacterArray) != -1)
                         builder.AppendFormat("\"{0}\"", value.Replace("\"", "\"\""));
                     else
