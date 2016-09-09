@@ -24,11 +24,31 @@ namespace Application.IEnumerableExtensions
             }
         }
 
-        public static IEnumerable<List<T>> Chunkify<T>(this IEnumerable<T> source, int chunkSize)
+        public static IEnumerable<List<T>> ChunkifyToList<T>(this IEnumerable<T> source, Func<IList<T>, T, bool> togglePartitionPredicate)
         {
-            if (chunkSize < 1)
-                return Enumerable.Empty<List<T>>();
-            return source.Paginate((new[] { 0, chunkSize }).Repeat());
+            using (var enumerator = source.GetEnumerator())
+            {
+                if (!enumerator.MoveNext())
+                    yield break;
+
+                var result = new List<T>();
+                var Toggle = togglePartitionPredicate(result, enumerator.Current);
+                result.Add(enumerator.Current);
+
+                while (enumerator.MoveNext())
+                {
+                    if (Toggle == togglePartitionPredicate(result, enumerator.Current))
+                        result.Add(enumerator.Current);
+                    else
+                    {
+                        yield return result;
+                        result = new List<T>();
+                        Toggle = togglePartitionPredicate(result, enumerator.Current);
+                        result.Add(enumerator.Current);
+                    }
+                }
+                yield return result;
+            }
         }
 
         public static IEnumerable<IEnumerable<T>> CombineWithoutRepetition<T>(this IEnumerable<T> source, int take = -1)
@@ -142,6 +162,105 @@ namespace Application.IEnumerableExtensions
             }
 
             return result;
+        }
+
+        public static IEnumerable<T> Interleave<T>(this IEnumerable<IEnumerable<T>> source)
+        {
+            var Enumerators = source.Select(x => x.GetEnumerator()).ToArray();
+            var EndNotReached = true;
+
+            while (EndNotReached)
+            {
+                var IntermediateResult = new List<T>();
+                foreach (var enumerator in Enumerators)
+                {
+                    if (!enumerator.MoveNext())
+                    {
+                        EndNotReached = false;
+                        break;
+                    }
+                    IntermediateResult.Add(enumerator.Current);
+                }
+                if (EndNotReached)
+                {
+                    foreach (var elem in IntermediateResult)
+                    {
+                        yield return elem;
+                    }
+                }
+                else
+                    yield break;
+            }
+        }
+
+        public static IEnumerable<T> InterleaveWithDefaults<T>(this IEnumerable<IEnumerable<T>> source)
+        {
+            var Enumerators = source.Select(x => x.GetEnumerator()).ToArray();
+            var EndNotReached = true;
+
+            while (EndNotReached)
+            {
+                EndNotReached = false;
+                var IntermediateResult = new List<T>();
+                for (var i = 0; i < Enumerators.Length; i++)
+                {
+                    var enumerator = Enumerators[i];
+
+                    if (enumerator == null)
+                        IntermediateResult.Add(default(T));
+                    else if (enumerator.MoveNext())
+                    {
+                        IntermediateResult.Add(enumerator.Current);
+                        EndNotReached = true;
+                    }
+                    else
+                    {
+                        IntermediateResult.Add(default(T));
+                        Enumerators[i] = null;
+                    }
+                }
+                if (EndNotReached)
+                {
+                    foreach (var elem in IntermediateResult)
+                    {
+                        yield return elem;
+                    }
+                }
+                else
+                    yield break;
+            }
+        }
+
+        public static IEnumerable<T> Interpose<T>(this IEnumerable<T> source, T seperator)
+        {
+            using (var enumerator = source.GetEnumerator())
+            {
+                if (!enumerator.MoveNext())
+                    yield break;
+
+                yield return enumerator.Current;
+                while (enumerator.MoveNext())
+                {
+                    yield return seperator;
+                    yield return enumerator.Current;
+                }
+            }
+        }
+
+        public static HashSet<T> Intersect<T>(this IEnumerable<IEnumerable<T>> source, IEqualityComparer<T> comparer = null)
+        {
+            comparer = comparer ?? EqualityComparer<T>.Default;
+
+            return source.Aggregate(x => new HashSet<T>(x, comparer), (result, x) =>
+            {
+                var Result = new HashSet<T>(comparer);
+                foreach (var elem in x)
+                {
+                    if (result.Contains(elem))
+                        Result.Add(elem);
+                }
+                return Result;
+            });
         }
 
         public static bool IsNullOrEmpty<T>(this IEnumerable<T> source)
@@ -423,9 +542,49 @@ namespace Application.IEnumerableExtensions
             return result;
         }
 
+        public static Dictionary<K, List<S>> ToDictionaryList<T, K, S>(this IEnumerable<T> source, Func<T, K> keySelector, Func<T, S> elementSelector)
+        {
+            return source.ToLookup(keySelector, elementSelector).ToDictionary(x => x.Key, x => x.ToList());
+        }
+
+        public static Dictionary<K, List<T>> ToDictionaryList<T, K>(this IEnumerable<T> source, Func<T, K> keySelector)
+        {
+            return source.ToLookup(keySelector).ToDictionary(x => x.Key, x => x.ToList());
+        }
+
+        public static Dictionary<K, List<S>> ToDictionaryList<T, K, S>(this IEnumerable<T> source, Func<T, K> keySelector, Func<T, S> elementSelector, IEqualityComparer<K> comparer)
+        {
+            return source.ToLookup(keySelector, elementSelector, comparer).ToDictionary(x => x.Key, x => x.ToList());
+        }
+
+        public static Dictionary<K, List<T>> ToDictionaryList<T, K>(this IEnumerable<T> source, Func<T, K> keySelector, IEqualityComparer<K> comparer)
+        {
+            return source.ToLookup(keySelector, comparer).ToDictionary(x => x.Key, x => x.ToList());
+        }
+
         public static HashSet<TSource> ToHashSet<TSource>(this IEnumerable<TSource> source, IEqualityComparer<TSource> comparer = null)
         {
             return new HashSet<TSource>(source, comparer ?? EqualityComparer<TSource>.Default);
+        }
+
+        public static List<T> Union<T>(this IEnumerable<IEnumerable<T>> source)
+        {
+            var result = new List<T>();
+            using (var enumerator = source.GetEnumerator())
+            {
+                while (enumerator.MoveNext())
+                {
+                    using (var innerEnumerator = enumerator.Current.GetEnumerator())
+                    {
+                        while (innerEnumerator.MoveNext())
+                        {
+                            result.Add(innerEnumerator.Current);
+                        }
+                    }
+                }
+            }
+
+            return result;
         }
 
         private static List<T> Split<T>(this IEnumerator<T> enumerator, T[][] seperator, IEqualityComparer<T> comparer)

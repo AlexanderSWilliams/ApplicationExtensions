@@ -196,28 +196,52 @@ namespace Application.Data.CSV
             return data.Select(x => x.Where(y => NonDistinctKeys.Contains(y.Key)).ToDictionary(y => y.Key, y => y.Value)).ToList();
         }
 
-        public static string ListOfListOfStringsToCSV(this IEnumerable<IEnumerable<string>> listOfListOfStrings, char delimiter = ',')
+        public static string ListOfListOfStringsToCSV(this IEnumerable<IEnumerable<string>> listOfListOfStrings, char delimiter = ',', bool minimalSize = false)
         {
             var builder = new StringBuilder();
             var SpecialCharacterArray = new char[] { '"', delimiter, '\r', '\n' };
-            foreach (var row in listOfListOfStrings)
-            {
-                bool firstColumn = true;
-                foreach (string value in row)
-                {
-                    // Add separator if this isn't the first value
-                    if (!firstColumn)
-                        builder.Append(delimiter);
 
-                    if (value == null)
-                        builder.Append("");
-                    else if (value.IndexOfAny(SpecialCharacterArray) != -1)
-                        builder.AppendFormat("\"{0}\"", value.Replace("\"", "\"\""));
-                    else
-                        builder.Append(value);
-                    firstColumn = false;
+            if (minimalSize)
+            {
+                foreach (var row in listOfListOfStrings)
+                {
+                    bool firstColumn = true;
+                    foreach (string value in row)
+                    {
+                        // Add separator if this isn't the first value
+                        if (!firstColumn)
+                            builder.Append(delimiter);
+
+                        if (value == null)
+                            builder.Append("");
+                        else if (value.IndexOfAny(SpecialCharacterArray) != -1)
+                            builder.AppendFormat("\"{0}\"", value.Replace("\"", "\"\""));
+                        else
+                            builder.Append(value);
+                        firstColumn = false;
+                    }
+                    builder.Append("\r\n");
                 }
-                builder.Append(System.Environment.NewLine);
+            }
+            else
+            {
+                foreach (var row in listOfListOfStrings)
+                {
+                    bool firstColumn = true;
+                    foreach (string value in row)
+                    {
+                        // Add separator if this isn't the first value
+                        if (!firstColumn)
+                            builder.Append(delimiter);
+
+                        if (value == null)
+                            builder.Append("");
+                        else
+                            builder.AppendFormat("\"{0}\"", value.Replace("\"", "\"\""));
+                        firstColumn = false;
+                    }
+                    builder.Append("\r\n");
+                }
             }
 
             return builder.ToString();

@@ -59,9 +59,9 @@ namespace Application.Data.SQLServer
                 .Append(dictMatches.Aggregate(x => GetMatchExpression(x), (result, x) => result.Append(" OR ").Append(GetMatchExpression(x)))).Append(")").ToString();
         }
 
-        public static string DeleteAllTablesCommand(this DbConnection conn, string[] tablePrefixNamesToOmit, string mandatoryPrefix = null)
+        public static string DeleteAllTablesCommand(this DbConnection conn, string[] tableNamesToOmit)
         {
-            var OrderedToDeleleTables = GetTableNamessInOrderOfValidDeletion(conn, tablePrefixNamesToOmit, mandatoryPrefix);
+            var OrderedToDeleleTables = GetTableNamessInOrderOfValidDeletion(conn, tableNamesToOmit);
 
             return OrderedToDeleleTables.Aggregate(x => new StringBuilder("DELETE FROM [").Append(x).Append("]"), (result, x) => result.Append(System.Environment.NewLine).Append("DELETE FROM [").Append(x).Append("]")).ToString();
         }
@@ -224,6 +224,12 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
             return conn.Query<RelationshipInfo>(query);
         }
 
+        public static IEnumerable<Dictionary<string, string>> GetColumnInformationSchema(this DbConnection conn)
+        {
+            return conn.Query(@"SELECT * FROM INFORMATION_SCHEMA.COLUMNS")
+                .Select(x => x.ToDictionary(y => y.Key, y => y.Value?.ToString()));
+        }
+
         public static IEnumerable<string> GetColumnNames(this DbConnection conn, string tableName)
         {
             return conn.Query<string>(@"select
@@ -317,7 +323,7 @@ SELECT @LogicalNameData";
         {
             var query = @"select top 1 name from [" + databaseName + @"].sys.database_files";
 
-            return conn.Query<string>(query, conn).First();
+            return conn.Query<string>(query).First();
         }
 
         public static string GetPrimaryKeyColumn(this DbConnection conn, string tableName)
@@ -347,7 +353,7 @@ SELECT @LogicalNameData";
                         ) AS [t3]
                     WHERE ([t3].[value] = 'PRIMARY KEY') AND ([t3].[TABLE_NAME] = '" + tableName + "')";
 
-            return conn.Query<string>(query).First();
+            return conn.Query<string>(query).FirstOrDefault();
         }
 
         public static StringBuilder GetSQLValueBuilder(string value)
@@ -367,12 +373,12 @@ SELECT @LogicalNameData";
             return conn.Query<string>(query);
         }
 
-        public static IEnumerable<string> GetTableNamessInOrderOfValidDeletion(this DbConnection conn, string[] tablePrefixNamesToOmit, string mandatoryPrefix = null)
+        public static IEnumerable<string> GetTableNamessInOrderOfValidDeletion(this DbConnection conn, string[] tableNamesToOmit)
         {
             var Relationships = SQLServer.GetAllRelationships(conn);
 
             var TablesWithRelatedTables = Relationships
-                .Where(x => !x.IsNullable || tablePrefixNamesToOmit.Contains(x.TableName))
+                .Where(x => !x.IsNullable)
                 .GroupBy(x => x.TableName)
                 .Select(x => new
                 {
@@ -380,8 +386,7 @@ SELECT @LogicalNameData";
                     RelatedTables = x.Select(y => y.RelatedTable).Distinct()
                 }).ToList();
 
-            var TableNamesToDelete = mandatoryPrefix != null ? SQLServer.GetTableNames(conn).Where(x => x.StartsWith(mandatoryPrefix) && !tablePrefixNamesToOmit.Any(y => x.StartsWith(y))).ToList() :
-                SQLServer.GetTableNames(conn).Where(x => !tablePrefixNamesToOmit.Any(y => x.StartsWith(y))).ToList();
+            var TableNamesToDelete = SQLServer.GetTableNames(conn).Where(x => !tableNamesToOmit.Any(y => x.StartsWith(y))).ToList();
             var NumberOfTables = TableNamesToDelete.Count;
             var OrderedToDeleleTables = new HashSet<string>();
 
@@ -429,8 +434,8 @@ SELECT @LogicalNameData";
 
             var TempTableName = "__" + tableName + "Temp";
             var columnNames = dictData.Select(x => x.Keys).First();
-            var columnNamesDelimited = columnNames.Aggregate(x => new StringBuilder(x), (result, x) => result.Append(", ").Append(x));
-            var setColumnsCommand = columnNames.Where(x => x != primaryKeyColumnName)
+            var columnNamesDelimited = columnNames.Select(x => "[" + x + "]").Aggregate(x => new StringBuilder(x), (result, x) => result.Append(", ").Append(x));
+            var setColumnsCommand = columnNames.Where(x => x != primaryKeyColumnName).Select(x => "[" + x + "]")
                                         .Aggregate(x => new StringBuilder("[").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x),
                                             (result, x) => result.Append(", [").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x));
 
@@ -880,12 +885,12 @@ SELECT @LogicalNameData";
                 stringBuilder.Append(" VALUES ");
                 stringBuilder.Append(row.Aggregate(x => new StringBuilder("(").Append(SQLServer.GetSQLValueBuilder(x.Value)),
                     (result, x) => result.Append(", ").Append(SQLServer.GetSQLValueBuilder(x.Value))));
-                stringBuilder.Append(") ");
+                stringBuilder.Append("); ");
             }
             if (columnsToReturn != null)
                 stringBuilder.Append(";SELECT * FROM @Result;");
             if (indentityInsert)
-                stringBuilder.Append("SET IDENTITY_INSERT [").Append(tableName).Append("] OFF");
+                stringBuilder.Append("SET IDENTITY_INSERT [").Append(tableName).Append("] OFF;");
             return stringBuilder.Length > 0 ? stringBuilder.ToString() : ";";
         }
 

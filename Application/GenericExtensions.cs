@@ -1,9 +1,29 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace Application.GenericExtensions
 {
     public static class GenericExtensions
     {
+        public static IEnumerable<T> Iterate<T>(this T source, Func<T, T> func)
+        {
+            var Result = source;
+            while (true)
+            {
+                yield return Result;
+                Result = func(source);
+            }
+        }
+
+        public static IEnumerable<S> Repeatedly<T, S>(this T source, Func<T, S> func)
+        {
+            while (true)
+            {
+                var Result = func(source);
+                yield return Result;
+            }
+        }
+
         public static bool? ToBool<T>(this T obj)
         {
             try

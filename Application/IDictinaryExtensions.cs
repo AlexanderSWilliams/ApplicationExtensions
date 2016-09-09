@@ -90,6 +90,11 @@ namespace Application.IDictionaryExtensions
             return destination;
         }
 
+        public static Dictionary<K, int> ToFrequency<K, V>(this IDictionary<K, IEnumerable<V>> dict)
+        {
+            return dict.ToDictionary(x => x.Key, x => x.Value.Count());
+        }
+
         public static List<List<string>> ToListOfListOfStrings<K, V>(this IEnumerable<IDictionary<K, V>> source)
         {
             var result = new List<List<string>>();

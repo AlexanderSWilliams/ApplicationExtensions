@@ -38,22 +38,24 @@ namespace Application.Data
 {
     public static class DbConnectionExtensions
     {
+        static private int _CommandTimeout = 30;
+        static private object _CommandTimeoutLock = new object();
         static private DbProviderFactory _factory = DbProviderFactories.GetFactory("System.Data.SqlClient");
 
-        public static int Execute(this DbConnection connection, string sql, params object[] args)
+        public static int Execute(this DbConnection connection, string sql, int? commandTimeout = null, params object[] args)
         {
             VerifyOpenConnection(connection);
-            var cmd = CreateCommand(sql, connection, args);
+            var cmd = CreateCommand(sql, connection, commandTimeout, args);
             return cmd.ExecuteNonQuery();
         }
 
-        public static List<T> Query<T>(this DbConnection connection, string sql, params object[] args)
+        public static List<T> Query<T>(this DbConnection connection, string sql, int? commandTimeout = null, params object[] args)
         {
             var result = new List<T>();
             VerifyOpenConnection(connection);
 
             var HasDefaultConstructor = typeof(T).GetInstanceOfReferenceType() != null;
-            using (var rdr = CreateCommand(sql, connection, args).ExecuteReader())
+            using (var rdr = CreateCommand(sql, connection, commandTimeout, args).ExecuteReader())
             {
                 while (rdr.Read())
                 {
@@ -76,11 +78,11 @@ namespace Application.Data
             return result;
         }
 
-        public static List<Dictionary<string, object>> Query(this DbConnection connection, string sql, params object[] args)
+        public static List<Dictionary<string, object>> Query(this DbConnection connection, string sql, int? commandTimeout = null, params object[] args)
         {
             var result = new List<Dictionary<string, object>>();
             VerifyOpenConnection(connection);
-            using (var rdr = CreateCommand(sql, connection, args).ExecuteReader())
+            using (var rdr = CreateCommand(sql, connection, commandTimeout, args).ExecuteReader())
             {
                 while (rdr.Read())
                 {
@@ -90,6 +92,14 @@ namespace Application.Data
             }
 
             return result;
+        }
+
+        public static void SetCommandTimeout(int timeout)
+        {
+            lock (_CommandTimeoutLock)
+            {
+                _CommandTimeout = timeout;
+            }
         }
 
         public static void VerifyOpenConnection(DbConnection connection)
@@ -149,11 +159,12 @@ namespace Application.Data
             }
         }
 
-        private static DbCommand CreateCommand(string sql, DbConnection conn, params object[] args)
+        private static DbCommand CreateCommand(string sql, DbConnection conn, int? commandTimeout, params object[] args)
         {
             var result = _factory.CreateCommand();
             if (result != null)
             {
+                result.CommandTimeout = commandTimeout ?? _CommandTimeout;
                 result.Connection = conn;
                 result.CommandText = sql;
                 result.AddParams(args);

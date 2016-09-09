@@ -4,7 +4,7 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{7B24DF0D-5437-4E0F-9085-77A709A394D7}</ProjectGuid>
+    <ProjectGuid>{A9FBAA5A-B8DD-4605-B751-389651C7BD3A}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Application</RootNamespace>
@@ -30,8 +30,9 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="EPPlus">
-      <HintPath>..\packages\EPPlus.dll</HintPath>
+    <Reference Include="EPPlus, Version=4.1.0.0, Culture=neutral, PublicKeyToken=ea159fdaa78159a1, processorArchitecture=MSIL">
+      <HintPath>..\packages\EPPlus.4.1.0\lib\net40\EPPlus.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -45,6 +46,9 @@
   <ItemGroup>
     <Compile Include="Data\XLSX.cs" />
     <Compile Include="Data\CSV.cs" />
+    <Compile Include="FuncTaskExtensions.cs" />
+    <Compile Include="IDisposableExtensions.cs" />
+    <Compile Include="ActionExtensions.cs" />
     <Compile Include="IListExtensions.cs" />
     <Compile Include="IEnumerableExtensions.cs" />
     <Compile Include="Data\DbConnectionExtensions.cs" />
@@ -66,6 +70,9 @@
     <Compile Include="StreamExtensions.cs" />
     <Compile Include="ApplicationExcpetion.cs" />
     <Compile Include="TypeExtensions.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="DeleteBinObjFolders" BeforeTargets="Clean">
