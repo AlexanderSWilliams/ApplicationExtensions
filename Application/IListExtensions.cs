@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Application.IListExtensions
@@ -31,7 +32,40 @@ namespace Application.IListExtensions
             }
         }
 
-        /* Very efficent if the amont << range. Terrible if amount == range. */
+        public static int IndexForSortedList<T>(this IList<T> source, Func<T, bool> predicate)
+        {
+            int min = 0, max = source.Count - 1;
+            while (min < max)
+            {
+                var mid = (max - min) / 2 + min;
+
+                if (predicate(source[mid]))
+                    max = mid;
+                else
+                    min = mid + 1;
+            }
+
+            if (max == min && predicate(source[min]))
+                return min;
+            else
+                return -1;
+        }
+
+        public static int IndexOfNextNewItem<T>(IList<T> list, int index, T item, IComparer<T> comparer)
+        {
+            var Length = list.Count;
+            var NewItem = index < Length ? list[index] : item;
+
+            while (comparer.Compare(NewItem, item) == 0)
+            {
+                index++;
+                if (index < Length)
+                    NewItem = list[index];
+                else
+                    return index;
+            }
+            return index;
+        }
 
         public static int IndexOfNth<T>(this IList<T> source, T instance, int nth)
         {
@@ -46,6 +80,333 @@ namespace Application.IListExtensions
 
             return s;
         }
+
+        public static T[] SortedExcept<T>(this IList<T> first, IList<T> second)
+        {
+            return SortedExcept(first, second, Comparer<T>.Default);
+        }
+
+        public static T[] SortedExcept<T>(this IList<T> first, IList<T> second, IComparer<T> comparer)
+        {
+            var FirstLength = first.Count;
+            var SecondLength = second.Count;
+
+            if (FirstLength == 0)
+                return new T[0];
+
+            if (SecondLength == 0)
+                return first as T[] ?? first.ToArray();
+
+            var FirstIndex = 0;
+            var SecondIndex = 0;
+
+            var TotalLength = FirstLength + SecondLength;
+            var ExceptIndex = 0;
+            var Except = new T[TotalLength];
+
+            var A = first[FirstIndex];
+            var B = second[SecondIndex];
+            while (FirstIndex < FirstLength && SecondIndex < SecondLength)
+            {
+                while (comparer.Compare(A, B) == -1)
+                {
+                    Except[ExceptIndex] = A;
+                    ExceptIndex++;
+
+                    FirstIndex++;
+                    if (FirstIndex < FirstLength)
+                    {
+                        A = first[FirstIndex];
+                    }
+                    else
+                        break;
+                }
+
+                while (comparer.Compare(A, B) == 0)
+                {
+                    FirstIndex++;
+                    if (FirstIndex < FirstLength)
+                    {
+                        A = first[FirstIndex];
+                    }
+                    else
+                        break;
+
+                    SecondIndex++;
+                    if (SecondIndex < SecondLength)
+                    {
+                        B = second[SecondIndex];
+                    }
+                    else
+                        break;
+                }
+
+                while (comparer.Compare(A, B) == 1)
+                {
+                    SecondIndex++;
+                    if (SecondIndex < SecondLength)
+                    {
+                        B = second[SecondIndex];
+                    }
+                    else
+                        break;
+                }
+            }
+
+            while (FirstIndex < FirstLength)
+            {
+                Except[ExceptIndex] = first[FirstIndex];
+                ExceptIndex++;
+                FirstIndex++;
+            }
+
+            Array.Resize(ref Except, ExceptIndex);
+
+            return Except;
+        }
+
+        public static T[] SortedIntersection<T>(this IList<T> first, IList<T> second)
+        {
+            return SortedIntersection(first, second, Comparer<T>.Default);
+        }
+
+        public static T[] SortedIntersection<T>(this IList<T> first, IList<T> second, IComparer<T> comparer)
+        {
+            var FirstLength = first.Count;
+            var SecondLength = second.Count;
+
+            if (FirstLength == 0 || SecondLength == 0)
+                return new T[0];
+
+            var FirstIndex = 0;
+            var SecondIndex = 0;
+
+            var TotalLength = FirstLength + SecondLength;
+            var IntersectionIndex = 0;
+            var Intersection = new T[TotalLength];
+
+            var A = first[FirstIndex];
+            var B = second[SecondIndex];
+            while (FirstIndex < FirstLength && SecondIndex < SecondLength)
+            {
+                while (comparer.Compare(A, B) == -1)
+                {
+                    FirstIndex++;
+                    if (FirstIndex < FirstLength)
+                    {
+                        A = first[FirstIndex];
+                    }
+                    else
+                        break;
+                }
+
+                while (comparer.Compare(A, B) == 0)
+                {
+                    Intersection[IntersectionIndex] = A;
+                    IntersectionIndex++;
+
+                    FirstIndex++;
+                    if (FirstIndex < FirstLength)
+                    {
+                        A = first[FirstIndex];
+                    }
+                    else
+                        break;
+
+                    SecondIndex++;
+                    if (SecondIndex < SecondLength)
+                    {
+                        B = second[SecondIndex];
+                    }
+                    else
+                        break;
+                }
+
+                while (comparer.Compare(A, B) == 1)
+                {
+                    SecondIndex++;
+                    if (SecondIndex < SecondLength)
+                    {
+                        B = second[SecondIndex];
+                    }
+                    else
+                        break;
+                }
+            }
+
+            Array.Resize(ref Intersection, IntersectionIndex);
+
+            return Intersection;
+        }
+
+        public static T[] SortedMerge<T>(this IList<T> first, IList<T> second)
+        {
+            return SortedMerge(first, second, Comparer<T>.Default);
+        }
+
+        public static T[] SortedMerge<T>(this IList<T> first, IList<T> second, IComparer<T> comparer)
+        {
+            var FirstLength = first.Count;
+            var SecondLength = second.Count;
+            if (FirstLength == 0)
+                return second as T[] ?? second.ToArray();
+            if (SecondLength == 0)
+                return first as T[] ?? first.ToArray();
+
+            var FirstIndex = 0;
+            var SecondIndex = 0;
+
+            var Result = new T[FirstLength + SecondLength];
+            var ResultIndex = 0;
+            while (FirstIndex < FirstLength && SecondIndex < SecondLength)
+            {
+                var A = first[FirstIndex];
+                var B = second[SecondIndex];
+
+                while (comparer.Compare(A, B) == -1)
+                {
+                    Result[ResultIndex] = A;
+                    ResultIndex++;
+                    FirstIndex++;
+
+                    if (FirstIndex < FirstLength)
+                        A = first[FirstIndex];
+                    else
+                        break;
+                }
+
+                do
+                {
+                    Result[ResultIndex] = B;
+                    ResultIndex++;
+                    SecondIndex++;
+
+                    if (SecondIndex < SecondLength)
+                        B = second[SecondIndex];
+                    else
+                        break;
+                } while (comparer.Compare(B, A) == -1);
+            }
+
+            while (FirstIndex < FirstLength)
+            {
+                Result[ResultIndex] = first[FirstIndex];
+                ResultIndex++;
+                FirstIndex++;
+            }
+
+            while (SecondIndex < SecondLength)
+            {
+                Result[ResultIndex] = second[SecondIndex];
+                ResultIndex++;
+                SecondIndex++;
+            }
+
+            return Result;
+        }
+
+        public static T[] SortedMergeDistinctly<T>(this IList<T> first, IList<T> second)
+        {
+            return SortedMergeDistinctly(first, second, Comparer<T>.Default);
+        }
+
+        public static T[] SortedMergeDistinctly<T>(this IList<T> first, IList<T> second, IComparer<T> comparer)
+        {
+            var FirstLength = first.Count;
+            var SecondLength = second.Count;
+            if (FirstLength == 0)
+                return second as T[] ?? second.ToArray();
+            if (SecondLength == 0)
+                return first as T[] ?? first.ToArray();
+
+            var FirstIndex = 0;
+            var SecondIndex = 0;
+
+            var Result = new T[FirstLength + SecondLength];
+            var ResultIndex = 0;
+            while (FirstIndex < FirstLength && SecondIndex < SecondLength)
+            {
+                var A = first[FirstIndex];
+                var B = second[SecondIndex];
+
+                while (comparer.Compare(A, B) == -1)
+                {
+                    Result[ResultIndex] = A;
+                    ResultIndex++;
+                    FirstIndex++;
+                    FirstIndex = IndexOfNextNewItem(first, FirstIndex, A, comparer);
+
+                    if (FirstIndex < FirstLength)
+                        A = first[FirstIndex];
+                    else
+                        break;
+                }
+
+                SecondIndex = ResultIndex != 0 ? IndexOfNextNewItem(second, SecondIndex, Result[ResultIndex - 1], comparer) : 0;
+
+                do
+                {
+                    Result[ResultIndex] = B;
+                    ResultIndex++;
+                    SecondIndex++;
+                    SecondIndex = IndexOfNextNewItem(second, SecondIndex, B, comparer);
+
+                    if (SecondIndex < SecondLength)
+                        B = second[SecondIndex];
+                    else
+                        break;
+                } while (comparer.Compare(B, A) == -1);
+
+                FirstIndex = ResultIndex != 0 ? IndexOfNextNewItem(first, FirstIndex, Result[ResultIndex - 1], comparer) : 0;
+            }
+
+            var CurrentElement = ResultIndex != 0 ? Result[ResultIndex - 1] : default(T);
+
+            FirstIndex = ResultIndex != 0 ? IndexOfNextNewItem(first, FirstIndex, CurrentElement, comparer) : 0;
+            while (FirstIndex < FirstLength)
+            {
+                var A = first[FirstIndex];
+                Result[ResultIndex] = A;
+                ResultIndex++;
+                FirstIndex++;
+                FirstIndex = IndexOfNextNewItem(first, FirstIndex, A, comparer);
+            }
+
+            SecondIndex = ResultIndex != 0 ? IndexOfNextNewItem(second, SecondIndex, CurrentElement, comparer) : 0;
+            while (SecondIndex < SecondLength)
+            {
+                var B = second[SecondIndex];
+                Result[ResultIndex] = B;
+                ResultIndex++;
+                SecondIndex++;
+                SecondIndex = IndexOfNextNewItem(second, SecondIndex, B, comparer);
+            }
+
+            Array.Resize(ref Result, ResultIndex);
+            return Result;
+        }
+
+        public static List<T> SubList<T>(this IList<T> data, int index, int length)
+        {
+            var result = new List<T>();
+            for (int i = 0; i < length; i++)
+            {
+                result.Add(data[index + i]);
+            }
+            return result;
+        }
+
+        public static List<T> SubList<T>(this IList<T> data, int index)
+        {
+            var result = new List<T>();
+            for (int i = 0, length = data.Count - index; i < length; i++)
+            {
+                result.Add(data[index + i]);
+            }
+            return result;
+        }
+
+        /* Very efficent if the amont << range. Terrible if amount == range. */
 
         private static IEnumerable<int> GetDistinctRandomNumbers(int inclusiveMin, int exclusiveMax, int amount)
         {

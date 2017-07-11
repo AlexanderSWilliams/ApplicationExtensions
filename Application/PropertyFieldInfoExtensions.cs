@@ -84,9 +84,9 @@ namespace Application.PropertyFieldInfoExtensions
             }
         }
 
-        public static IEnumerable<CustomAttributeData> CustomAttributes(this PropertyFieldInfo propertyFieldInfo)
+        public static object[] CustomAttributes(this PropertyFieldInfo propertyFieldInfo)
         {
-            return propertyFieldInfo.Property?.CustomAttributes ?? propertyFieldInfo.Field?.CustomAttributes;
+			return propertyFieldInfo.Property != null ? propertyFieldInfo.Property.GetCustomAttributes(false) : propertyFieldInfo.Field.GetCustomAttributes(false);
         }
 
         public static IEnumerable<PropertyFieldInfo> DBPrimativeAssignablePropsAndFields(this Type type)

@@ -2,7 +2,9 @@
 using Application.Types;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Application.StringExtensions
@@ -41,6 +43,21 @@ namespace Application.StringExtensions
         {
             var Indices = text.IndicesOf<char>(c => char.IsWhiteSpace(c));
             return Indices.Any() ? Indices.Last() : -1;
+        }
+
+        public static string NormalizeToASCII(this string str)
+        {
+            var Normalized = str.Normalize(NormalizationForm.FormKD);
+            var NormalizedLength = Normalized.Length;
+            var result = new StringBuilder();
+            for (var i = 0; i < NormalizedLength; i++)
+            {
+                var Character = Normalized[i];
+                if ((!Char.IsControl(Character) && (int)Character < 128) || Character == '\r' || Character == '\n')
+                    result.Append(Character);
+            }
+
+            return result.ToString();
         }
 
         public static bool? ToBool(this string obj)
@@ -149,6 +166,16 @@ namespace Application.StringExtensions
                 return value;
             else
                 throw new ApplicationException(errorMessage);
+        }
+
+        public static MemoryStream ToStream(this string s)
+        {
+            var stream = new MemoryStream();
+            var writer = new StreamWriter(stream);
+            writer.Write(s);
+            writer.Flush();
+            stream.Position = 0;
+            return stream;
         }
 
         public static TimeSpan? ToTimeSpan(this string obj)

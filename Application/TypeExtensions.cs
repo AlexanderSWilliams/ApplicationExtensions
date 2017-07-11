@@ -8,13 +8,10 @@ namespace Application.TypeExtensions
 {
     public static class TypeExtensions
     {
-        private static Dictionary<Type, Type> UnderlyingTypeDictionary = new Dictionary<Type, Type>();
-
-        private static readonly object UnderlyingTypeDictionaryLock = new object();
-
         private static readonly IDictionary<Type, ConstructorInfo> ReferenceTypeDefaultConstructorStorage = new Dictionary<Type, ConstructorInfo>();
-
         private static readonly object ReferenceTypeDefaultConstructorStorageLock = new object();
+        private static readonly object UnderlyingTypeDictionaryLock = new object();
+        private static Dictionary<Type, Type> UnderlyingTypeDictionary = new Dictionary<Type, Type>();
 
         public static object GetInstanceOfReferenceType(this Type type)
         {

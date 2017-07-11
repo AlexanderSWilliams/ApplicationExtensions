@@ -24,6 +24,13 @@ namespace Application.GenericExtensions
             }
         }
 
+        public static S SelectOrDefault<T, S>(this T source, Func<T, S> func, S defaultValue = default(S)) where S : class
+        {
+            if (source == null)
+                return defaultValue;
+            return func(source);
+        }
+
         public static bool? ToBool<T>(this T obj)
         {
             try

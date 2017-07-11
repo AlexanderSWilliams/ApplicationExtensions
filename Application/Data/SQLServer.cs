@@ -10,7 +10,11 @@ namespace Application.Data.SQLServer
 {
     public static class SQLServer
     {
-        public static StringBuilder NullBuilder = new StringBuilder("NULL");
+        public static StringBuilder DefaultBuilder = new StringBuilder("DEFAULT");
+
+        public static StringBuilder IsNULLBuilder = new StringBuilder("IS NULL");
+
+        public static StringBuilder NULLBuilder = new StringBuilder("NULL");
 
         public enum NullableOption
         {
@@ -19,32 +23,15 @@ namespace Application.Data.SQLServer
             Both
         }
 
-        public static string AutoBackupDBCommand(this DbConnection conn, string sqlServerPath, string dbName, string stats = "10")
+        public static string BackupDBCommand(this DbConnection conn, string bakPath, string newName = null, string stats = "10")
         {
-            var sourceLogicalFileName = GetLogicalFileNameFromDB(conn, dbName);
-            if (sourceLogicalFileName != dbName)
-            {
-                var query = @"ALTER DATABASE [" + dbName + @"] MODIFY FILE (Name = '" + sourceLogicalFileName + @"', NEWNAME = [" + dbName + @"]);
-                ALTER DATABASE [" + dbName + @"] MODIFY FILE (Name = '" + sourceLogicalFileName + @"_log',NEWNAME = [" + dbName + @"_log]);";
+            var SourceDB = new System.Data.SqlClient.SqlConnectionStringBuilder(conn.ConnectionString).InitialCatalog;
+            var Result = UpdateLogicalNamesCommand(conn, SourceDB);
 
-                conn.Execute(query);
-            }
+            Result += @"BACKUP DATABASE [" + SourceDB + @"] TO  DISK = N'" + bakPath + @"' WITH FORMAT, INIT,  NAME = N'" + (newName ?? SourceDB) +
+                @"', NOREWIND, NOUNLOAD,  STATS = " + stats + @";";
 
-            return conn.Query<string>(@"BACKUP DATABASE [" + dbName + @"] TO  DISK = N'" + sqlServerPath + @"\AutoBackup\" + dbName + @".bak' WITH FORMAT, INIT,  NAME = N'" + dbName + @"-Full Database Backup', NOREWIND, NOUNLOAD,  STATS = " + stats + @"").First();
-        }
-
-        public static string BackupDBCommand(this DbConnection conn, string sqlServerPath, string dbName, string stats = "10")
-        {
-            var sourceLogicalFileName = GetLogicalFileNameFromDB(conn, dbName);
-
-            if (sourceLogicalFileName != dbName)
-            {
-                var query = (@"ALTER DATABASE [" + dbName + @"] MODIFY FILE (Name = '" + sourceLogicalFileName + @"', NEWNAME = [" + dbName + @"]);
-                ALTER DATABASE [" + dbName + @"] MODIFY FILE (Name = '" + sourceLogicalFileName + @"_log',NEWNAME = [" + dbName + @"_log]);");
-                conn.Execute(query);
-            }
-
-            return conn.Query<string>(@"BACKUP DATABASE [" + dbName + @"] TO  DISK = N'" + sqlServerPath + @"\Backup\" + dbName + @".bak' WITH FORMAT, INIT,  NAME = N'" + dbName + @"-Full Database Backup', NOREWIND, NOUNLOAD,  STATS = " + stats + @"").First();
+            return Result;
         }
 
         public static string ContainsIDsInTableCommand(string tableName, IEnumerable<object> matches)
@@ -64,6 +51,12 @@ namespace Application.Data.SQLServer
             var OrderedToDeleleTables = GetTableNamessInOrderOfValidDeletion(conn, tableNamesToOmit);
 
             return OrderedToDeleleTables.Aggregate(x => new StringBuilder("DELETE FROM [").Append(x).Append("]"), (result, x) => result.Append(System.Environment.NewLine).Append("DELETE FROM [").Append(x).Append("]")).ToString();
+        }
+
+        public static string DeleteIfExistsCommand(string tableName)
+        {
+            return "IF OBJECT_ID('tempdb.dbo." + tableName + "', 'U') IS NOT NULL\r\n    DROP TABLE #T;\r\nIF OBJECT_ID('dbo." + tableName +
+                "', 'U') IS NOT NULL\r\n    DROP TABLE dbo." + tableName + ";\r\n";
         }
 
         public static string DropColumnAndDependentConstraintsAndIndex(this DbConnection conn, string tableName, string columnName)
@@ -224,9 +217,10 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
             return conn.Query<RelationshipInfo>(query);
         }
 
-        public static IEnumerable<Dictionary<string, string>> GetColumnInformationSchema(this DbConnection conn)
+        public static IEnumerable<Dictionary<string, string>> GetColumnInformationSchema(this DbConnection conn, IEnumerable<string> columns = null)
         {
-            return conn.Query(@"SELECT * FROM INFORMATION_SCHEMA.COLUMNS")
+            return conn.Query(@"SELECT " + (columns != null ? columns.Aggregate(x => x, (result, x) => result + ", " + x) : "*")
+                    + " FROM INFORMATION_SCHEMA.COLUMNS")
                 .Select(x => x.ToDictionary(y => y.Key, y => y.Value?.ToString()));
         }
 
@@ -238,7 +232,7 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
                sysobjects, syscolumns
             where sysobjects.id = syscolumns.id
             and   sysobjects.xtype = 'u'
-            and   sysobjects.name = '" + tableName + @"'
+            and  sysobjects.name = '" + tableName + @"'
             order by syscolumns.name");
         }
 
@@ -266,8 +260,19 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
             return result;
         }
 
-        public static IEnumerable<string> GetDepedentTables(DbConnection conn, string tableName,
-            NullableOption nullableOption, int depth = int.MaxValue)
+        public static Dictionary<string, Dictionary<string, string>> GetDefaultDefinitions(this DbConnection conn)
+        {
+            return conn.Query(@"select ColumnName = col.name, TableName = o.name, DefaultValue = object_definition(col.default_object_id) from sys.default_constraints c
+    inner join sys.columns col on col.default_object_id = c.object_id
+    inner join sys.objects o  on o.object_id = c.parent_object_id
+    inner join sys.schemas s on s.schema_id = o.schema_id
+	where s.name = 'dbo'")
+                .GroupBy(x => x["TableName"])
+                .ToDictionary(x => x.Key, x => x.ToDictionary(y => y["ColumnName"], y => y["DefaultValue"], StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+        }
+
+        public static IEnumerable<string> GetDependentTables(DbConnection conn, string tableName,
+                            NullableOption nullableOption, int depth = int.MaxValue)
         {
             var Relationships = SQLServer.GetAllRelationships(conn);
             if (nullableOption == NullableOption.OnlyNullable)
@@ -276,7 +281,7 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
                 Relationships = Relationships.Where(x => !x.IsNullable).ToList();
 
             depth--;
-            var Result = new HashSet<string>(Relationships.Where(x => !x.IsNullable && x.RelatedTable == tableName).Select(x => x.TableName));
+            var Result = new HashSet<string>(Relationships.Where(x => x.RelatedTable == tableName).Select(x => x.TableName));
 
             int OldCount = 0;
             while (Result.Count != OldCount && depth > 0)
@@ -297,13 +302,13 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
             return Result;
         }
 
-        public static string GetLogicalFileNameFromBak(this DbConnection conn, string bakName, string sqlServerPath)
+        public static List<string> GetLogicalNamesFromBak(this DbConnection conn, string bakPath)
         {
             var query = @"DECLARE @Table TABLE (LogicalName varchar(128),[PhysicalName] varchar(128), [Type] varchar, [FileGroupName] varchar(128), [Size] varchar(128),
             [MaxSize] varchar(128), [FileId]varchar(128), [CreateLSN]varchar(128), [DropLSN]varchar(128), [UniqueId]varchar(128), [ReadOnlyLSN]varchar(128), [ReadWriteLSN]varchar(128),
             [BackupSizeInBytes]varchar(128), [SourceBlockSize]varchar(128), [FileGroupId]varchar(128), [LogGroupGUID]varchar(128), [DifferentialBaseLSN]varchar(128), [DifferentialBaseGUID]varchar(128), [IsReadOnly]varchar(128), [IsPresent]varchar(128), [TDEThumbprint]varchar(128)
 )
-DECLARE @Path varchar(1000)='" + sqlServerPath + @"\Backup\" + bakName + @".bak'
+DECLARE @Path varchar(1000)='" + bakPath + @"'
 DECLARE @LogicalNameData varchar(128),@LogicalNameLog varchar(128)
 INSERT INTO @table
 EXEC('
@@ -314,51 +319,68 @@ RESTORE FILELISTONLY
    SET @LogicalNameData=(SELECT LogicalName FROM @Table WHERE Type='D')
    SET @LogicalNameLog=(SELECT LogicalName FROM @Table WHERE Type='L')
 
-SELECT @LogicalNameData";
+SELECT @LogicalNameData UNION ALL SELECT @LogicalNameLog;";
 
-            return conn.Query<string>(query).First();
+            return conn.Query<string>(query);
         }
 
-        public static string GetLogicalFileNameFromDB(this DbConnection conn, string databaseName)
+        public static Dictionary<string, List<string>> GetNonNullableColumns(this DbConnection conn)
         {
-            var query = @"select top 1 name from [" + databaseName + @"].sys.database_files";
-
-            return conn.Query<string>(query).First();
+            return conn.Query(@"SELECT TABLE_NAME, COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE IS_NULLABLE = 'NO' AND TABLE_SCHEMA = 'dbo'")
+            .GroupBy(x => x["TABLE_NAME"])
+            .ToDictionary(x => x.Key, x => x.Select(y => y["COLUMN_NAME"]).ToList(), StringComparer.OrdinalIgnoreCase);
         }
 
-        public static string GetPrimaryKeyColumn(this DbConnection conn, string tableName)
+        public static Dictionary<string, List<string>> GetPrimaryKeyTableColumns(this DbConnection conn, IEnumerable<string> tableNames)
         {
-            // Generated from
-            //INFORMATION_SCHEMA.KEY_COLUMN_USAGE.GroupJoin(INFORMATION_SCHEMA.TABLE_CONSTRAINTS, o => new {o.TABLE_NAME, o.CONSTRAINT_CATALOG, o.CONSTRAINT_SCHEMA, o.CONSTRAINT_NAME },
-            //        i => new {i.TABLE_NAME, i.CONSTRAINT_CATALOG, i.CONSTRAINT_SCHEMA, i.CONSTRAINT_NAME }, (o, i) => new {
-            //            o.TABLE_NAME,
-            //            o.COLUMN_NAME,
-            //            i.First().CONSTRAINT_TYPE
-            //        })
-            //        .Where(x => x.CONSTRAINT_TYPE == "PRIMARY KEY" && x.TABLE_NAME == "TableName")
-            //        .Select(x => x.COLUMN_NAME)
+            var WhereCMD = string.Format("WHERE TABLE_NAME in ({0})", string.Join(",", tableNames.Select(t => string.Format("'{0}'", t))));
+            return GetPrimaryKeyTableColumns(conn, WhereCMD);
+        }
 
+        public static Dictionary<string, List<string>> GetPrimaryKeyTableColumns(this DbConnection conn, string WhereCMD = null)
+        {
             var query = @"
-                    SELECT [t3].[COLUMN_NAME]
-                    FROM (
-                        SELECT [t0].[TABLE_NAME], [t0].[COLUMN_NAME], (
-                            SELECT [t2].[CONSTRAINT_TYPE]
-                            FROM (
-                                SELECT TOP (1) [t1].[CONSTRAINT_TYPE]
-                                FROM [INFORMATION_SCHEMA].[TABLE_CONSTRAINTS] AS [t1]
-                                WHERE ([t0].[TABLE_NAME] = [t1].[TABLE_NAME]) AND ([t0].[CONSTRAINT_CATALOG] = [t1].[CONSTRAINT_CATALOG]) AND ([t0].[CONSTRAINT_SCHEMA] = [t1].[CONSTRAINT_SCHEMA]) AND ([t0].[CONSTRAINT_NAME] = [t1].[CONSTRAINT_NAME])
-                                ) AS [t2]
-                            ) AS [value]
-                        FROM [INFORMATION_SCHEMA].[KEY_COLUMN_USAGE] AS [t0]
-                        ) AS [t3]
-                    WHERE ([t3].[value] = 'PRIMARY KEY') AND ([t3].[TABLE_NAME] = '" + tableName + "')";
+                    SELECT * FROM (
+select A.TABLE_NAME, COLUMN_NAME from INFORMATION_SCHEMA.KEY_COLUMN_USAGE A
+	JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS B
+	ON A.TABLE_NAME = B.TABLE_NAME AND
+	   A.CONSTRAINT_CATALOG = B.CONSTRAINT_CATALOG AND
+	   A.CONSTRAINT_SCHEMA = B.CONSTRAINT_SCHEMA AND
+	   A.CONSTRAINT_NAME = B.CONSTRAINT_NAME
+	WHERE B.CONSTRAINT_TYPE = 'PRIMARY KEY') A " + WhereCMD;
 
-            return conn.Query<string>(query).FirstOrDefault();
+            return conn.Query(query).Select(x => new
+            {
+                TableName = x["TABLE_NAME"],
+                ColumName = x["COLUMN_NAME"]
+            })
+            .GroupBy(x => x.TableName)
+            .ToDictionary(x => x.Key, x => x.Select(y => y.ColumName).ToList(), StringComparer.OrdinalIgnoreCase);
         }
 
-        public static StringBuilder GetSQLValueBuilder(string value)
+        public static StringBuilder GetSQLEqualsValueBuilder(string value)
         {
-            return value != null ? new StringBuilder("'").Append(value.Replace("'", "''")).Append("'") : SQLServer.NullBuilder;
+            return value != null ? new StringBuilder("= '").Append(value.Replace("'", "''")).Append("'") : IsNULLBuilder;
+        }
+
+        public static StringBuilder GetSQLLikeValueBuilder(string value)
+        {
+            return value != null ? new StringBuilder("LIKE '").Append(value.Replace("'", "''")).Append("'") : IsNULLBuilder;
+        }
+
+        public static StringBuilder GetSQLSetValueBuilder(string value)
+        {
+            return value != null ? new StringBuilder("= '").Append(value.Replace("'", "''")).Append("'") : IsNULLBuilder;
+        }
+
+        public static StringBuilder GetSQLValueBuilder(string value, bool omitQuote)
+        {
+            if (omitQuote)
+                return value != null ? new StringBuilder(value) : SQLServer.DefaultBuilder;
+            else
+                return value != null ? new StringBuilder("'").Append(value.Replace("'", "''")).Append("'") : SQLServer.DefaultBuilder;
         }
 
         public static IEnumerable<string> GetTableNames(this DbConnection conn)
@@ -423,29 +445,50 @@ SELECT @LogicalNameData";
             return OrderedToDeleleTables;
         }
 
-        public static string InsertRowsCommand(string tableName, IEnumerable<object> data, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null)
+        public static Dictionary<string, HashSet<string>> GetUnQuotedColumns(this DbConnection conn)
         {
-            return InsertRowsCommand(tableName, data.Select(x => x.ToStringStringDictionary()), columnsToReturn, indentityInsert, columnsToExclude);
+            return conn.Query(@"SELECT TABLE_NAME, COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image') AND TABLE_SCHEMA = 'dbo'")
+            .GroupBy(x => x["TABLE_NAME"])
+            .ToDictionary(x => x.Key, x => x.Select(y => y["COLUMN_NAME"]).ToHashSet(), StringComparer.OrdinalIgnoreCase);
         }
 
-        public static string MergeRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<object> data, bool tableHasIdentity, string setCMD = null, bool deleteUnspecifiedRows = false)
+        public static IEnumerable<string> InsertRowsCommand(string tableName, IEnumerable<object> data, int batchRowCount, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
+        {
+            return data.ChunkifyToList((list, y) => list.Count != batchRowCount).Select(x =>
+                InsertRowsCommand(tableName, x.Select(y => y.ToStringStringDictionary()), columnsToReturn, indentityInsert, columnsToExclude, unquotedColumns));
+        }
+
+        public static List<string> MergeRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<object> data, bool tableHasIdentity, int batchRowCount, string setCMD = null, bool deleteUnspecifiedRows = false, Dictionary<string, string> ColumnsToDefault = null, HashSet<string> unquotedColumns = null)
         {
             var dictData = data.Select(x => x.ToStringStringDictionary());
+            var Result = new List<string>();
 
             var TempTableName = "__" + tableName + "Temp";
             var columnNames = dictData.Select(x => x.Keys).First();
             var columnNamesDelimited = columnNames.Select(x => "[" + x + "]").Aggregate(x => new StringBuilder(x), (result, x) => result.Append(", ").Append(x));
-            var setColumnsCommand = columnNames.Where(x => x != primaryKeyColumnName).Select(x => "[" + x + "]")
+            var setColumnsCommand = columnNames.Where(x => !primaryKeyColumnNames.Contains(x)).Select(x => "[" + x + "]")
                                         .Aggregate(x => new StringBuilder("[").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x),
                                             (result, x) => result.Append(", [").Append(tableName).Append("].").Append(x).Append(" = [").Append(TempTableName).Append("].").Append(x));
 
-            var builder = new StringBuilder("SELECT TOP 0 ").Append(columnNamesDelimited).Append(" INTO [").Append(TempTableName).Append("] from [").Append(tableName)
+            var builder = new StringBuilder(DeleteIfExistsCommand(TempTableName) + "SELECT TOP 0 ").Append(columnNamesDelimited).Append(" INTO [").Append(TempTableName).Append("] from [").Append(tableName)
                 .Append(@"];");
 
             if (tableHasIdentity)
                 builder.Append("SET IDENTITY_INSERT [").Append(TempTableName).Append("] ON").Append(System.Environment.NewLine);
 
-            builder.Append(SQLServer.InsertRowsCommand(TempTableName, dictData));
+            if (ColumnsToDefault != null)
+                builder.Append(ColumnsToDefault.Aggregate("", (a, c) => a + string.Format("Alter table {0} add constraint def_temp_{0}_{1} default " + c.Value + " for {1};", TempTableName, c.Key))).Append(System.Environment.NewLine);
+
+            Result.Add(builder.Length > 0 ? builder.ToString() : ";");
+
+            dictData.ChunkifyToList((list, y) => list.Count != batchRowCount).ToList().ForEach(y =>
+            {
+                Result.Add(SQLServer.InsertRowsCommand(TempTableName, y, null, false, null, unquotedColumns));
+            });
+
+            builder = new StringBuilder("");
 
             if (tableHasIdentity)
                 builder.Append("SET IDENTITY_INSERT [").Append(TempTableName).Append(@"] OFF;");
@@ -453,8 +496,14 @@ SELECT @LogicalNameData";
             if (setCMD != null)
                 builder.Append("UPDATE [").Append(TempTableName).Append("] ").Append(setCMD).Append(";");
 
-            builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON [").Append(TempTableName)
-                    .Append("].[").Append(primaryKeyColumnName).Append(@"] = [").Append(tableName).Append(@"].[").Append(primaryKeyColumnName).Append(@"];");
+            if (deleteUnspecifiedRows)
+                builder.Append("DELETE a FROM [" + tableName + "] a LEFT OUTER JOIN [" + TempTableName +
+                    "] b ON ").Append(primaryKeyColumnNames.Any() ? primaryKeyColumnNames.Select(x => "a.[" + x + "] = b.[" + x + "] WHERE b.[" + x + "] IS NULL)")
+                                .Aggregate(x => x, (result, x) => result + " AND " + x) + ";" : "1=1;");
+
+            builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON ")
+                .Append(primaryKeyColumnNames.Any() ? (primaryKeyColumnNames.Select(x => "[" + TempTableName + "].[" + x + "] = [" + tableName + "].[" + x + "]")
+                            .Aggregate(x => x, (result, x) => result + " AND " + x) + ";") : "1=1;");
 
             if (tableHasIdentity)
                 builder.Append("SET IDENTITY_INSERT [").Append(tableName).Append(@"] ON;");
@@ -464,45 +513,30 @@ SELECT @LogicalNameData";
 						WHERE NOT (EXISTS(
 							SELECT TOP (1) NULL AS [EMPTY]
 							FROM [").Append(tableName).Append(@"] AS [t1]
-							WHERE [t0].[").Append(primaryKeyColumnName).Append(@"] = [t1].[").Append(primaryKeyColumnName).Append(@"]));");
+							WHERE ").Append(primaryKeyColumnNames.Any() ? primaryKeyColumnNames.Select(x => @"[t0].[" + x + @"] = [t1].[" + x + @"]")
+                                                .Aggregate(x => x, (result, x) => result + " AND " + x) + "));" : "1=1));");
 
             if (tableHasIdentity)
                 builder.Append("SET IDENTITY_INSERT [").Append(tableName).Append(@"] OFF;");
 
-            if (deleteUnspecifiedRows)
-                builder.Append("DELETE a FROM [" + tableName + "] a LEFT OUTER JOIN [" + TempTableName +
-                    "] b ON a.[" + primaryKeyColumnName + "] = b.[" + primaryKeyColumnName + "] WHERE b.[" + primaryKeyColumnName + "] IS NULL;");
+            builder.Append("DROP TABLE [").Append(TempTableName).Append("];");
 
-            builder.Append("DROP TABLE[").Append(TempTableName).Append("];");
-
-            return builder.Length > 0 ? builder.ToString() : ";";
+            Result.Add(builder.Length > 0 ? builder.ToString() : ";");
+            return Result;
         }
 
-        public static void RestoreDB(this DbConnection conn, string sqlServerPath, string sourceBak, string destinationDB, string stats = "5", bool assumeSourceLogicalFileNameIsCorrect = true)
+        public static string RestoreDBCommand(this DbConnection conn, string mdfPath, string logPath, string bakPath, string destinationDB, string stats = "5")
         {
-            var sourceLogicalFileName = GetLogicalFileNameFromBak(conn, sourceBak, sqlServerPath);
+            var Result = @"IF EXISTS (SELECT name FROM master.dbo.sysdatabases WHERE name = N'" + destinationDB + @"')
+                        EXEC msdb.dbo.sp_delete_database_backuphistory @database_name = N'" + destinationDB + @"';
+                        ALTER DATABASE[" + destinationDB + @"] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE[" + destinationDB + @"];
+                        CREATE DATABASE [" + destinationDB + @"];";
 
-            if (!assumeSourceLogicalFileNameIsCorrect)
-            {
-                if (sourceLogicalFileName != sourceBak)
-                {
-                    conn.Execute(@"ALTER DATABASE [" + sourceBak + @"] MODIFY FILE (Name = '" + sourceLogicalFileName + @"', NEWNAME = [" + sourceBak + @"]);
-                ALTER DATABASE [" + sourceBak + @"] MODIFY FILE (Name = '" + sourceLogicalFileName + @"_log',NEWNAME = [" + sourceBak + @"_log]);");
-                }
-            }
-            conn.Execute(@"IF  NOT EXISTS (SELECT name FROM master.dbo.sysdatabases WHERE name = N'" + destinationDB + @"')
-                        CREATE DATABASE [" + destinationDB + @"]");
+            var sourceLogicalNames = GetLogicalNamesFromBak(conn, bakPath);
+            Result += "RESTORE DATABASE [" + destinationDB + @"] FROM  DISK = N'" + bakPath + @"' WITH MOVE N'" + sourceLogicalNames[0] + @"' TO N'" + mdfPath + "', MOVE N'" + sourceLogicalNames[1] + @"' TO N'" + logPath + "',  NOUNLOAD,  REPLACE,  STATS = " + stats + ";";
+            Result += UpdateLogicalNamesCommand(conn, destinationDB);
 
-            conn.Execute(@"ALTER DATABASE [" + destinationDB + @"] SET SINGLE_USER WITH ROLLBACK IMMEDIATE
-            RESTORE DATABASE [" + destinationDB + @"] FROM  DISK = N'" + sqlServerPath + @"\Backup\" + sourceBak + @".bak' WITH MOVE N'" + sourceLogicalFileName + @"' TO N'" + sqlServerPath + @"\DATA\" + destinationDB + @".mdf', MOVE N'" + sourceLogicalFileName + @"_log' TO N'" + sqlServerPath + @"\DATA\" + destinationDB + @"_log.ldf',  NOUNLOAD,  REPLACE,  STATS = " + stats + @"
-            ALTER DATABASE [" + destinationDB + @"] SET MULTI_USER ");
-
-            var destinationLogicalFileName = GetLogicalFileNameFromDB(conn, destinationDB);
-            if (destinationLogicalFileName != destinationDB)
-            {
-                conn.Execute(@"ALTER DATABASE [" + destinationDB + @"] MODIFY FILE (Name = '" + destinationLogicalFileName + @"', NEWNAME = " + destinationDB + @");
-				ALTER DATABASE [" + destinationDB + @"] MODIFY FILE (Name = '" + destinationLogicalFileName + @"_log',NEWNAME = " + destinationDB + @"_log);");
-            }
+            return Result;
         }
 
         public static bool TableHasIdentity(this DbConnection conn, string tableName)
@@ -510,9 +544,31 @@ SELECT @LogicalNameData";
             return conn.Query<int>("SELECT OBJECTPROPERTY(OBJECT_ID('" + tableName + "'), 'TableHasIdentity')").First() == 1;
         }
 
-        public static string UpdateRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<object> columns)
+        public static string UpdateLogicalNamesCommand(this DbConnection conn, string DB)
         {
-            return UpdateRowsCommand(tableName, primaryKeyColumnName, columns.Select(x => x.ToStringStringDictionary()));
+            var query = @"select top 1 name from [" + DB + @"].sys.database_files WHERE type_desc = 'ROWS'
+                          UNION ALL " +
+                        @"select top 1 name from [" + DB + @"].sys.database_files WHERE type_desc = 'LOG'";
+
+            var DBLogicalNames = conn.Query<string>(query);
+
+            var Result = "";
+            if (DBLogicalNames[0] != DB)
+                Result += "ALTER DATABASE [" + DB + @"] MODIFY FILE (Name = '" + DBLogicalNames[0] + @"', NEWNAME = " + DB + ");";
+            if (DBLogicalNames[1] != DB + "_log")
+                Result += "ALTER DATABASE [" + DB + @"] MODIFY FILE (Name = '" + DBLogicalNames[1] + @"',NEWNAME = " + DB + @"_log);";
+
+            return Result;
+        }
+
+        public static string UpdateRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<object> columns)
+        {
+            return UpdateRowsCommand(tableName, primaryKeyColumnNames, columns.Select(x => x.ToStringStringDictionary()));
+        }
+
+        public static string UpdateRowsCommand<T, S>(string tableName, IEnumerable<SetWhereRow<T, S>> setWhereDiffs, bool useLike = false)
+        {
+            return UpdateRowsCommand(tableName, setWhereDiffs.Select(x => Tuple.Create(x.SetData.ToStringStringDictionary(), x.WhereData.ToStringStringDictionary())), useLike);
         }
 
         private static IEnumerable<string> GetDependentCheckConstraints(this DbConnection conn, string tableName, string columnName)
@@ -860,21 +916,24 @@ SELECT @LogicalNameData";
 
         private static StringBuilder GetMatchExpression(IDictionary<string, string> dict)
         {
-            return dict.Aggregate(x => (new StringBuilder("([t0].[")).Append(x.Key).Append("] = ").Append(GetSQLValueBuilder(x.Value)),
-                (result, x) => result.Append(" AND [t0].[").Append(x.Key).Append("] = ").Append(GetSQLValueBuilder(x.Value)).Append(")"));
+            return dict.Select(x => new StringBuilder("([t0].[").Append(x.Key).Append("] ").Append(GetSQLEqualsValueBuilder(x.Value)).Append(")"))
+                    .Aggregate(x => x, (result, x) => result.Append(" AND ").Append(x));
         }
 
-        private static string InsertRowsCommand(string tableName, IEnumerable<IDictionary<string, string>> data, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null)
+        private static string InsertRowsCommand(string tableName, IEnumerable<IDictionary<string, string>> data, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
         {
+            unquotedColumns = unquotedColumns ?? new HashSet<string>();
             var stringBuilder = indentityInsert ? new StringBuilder("SET IDENTITY_INSERT [").Append(tableName).Append("] ON").Append(Environment.NewLine) : new StringBuilder();
             var OutPutCommand = columnsToReturn != null ? (new StringBuilder("output ")).Append(columnsToReturn.Aggregate(x => (new StringBuilder("inserted.[")).Append(x).Append("]"),
                 (result, x) => result.Append(", ").Append("inserted.[").Append(x).Append("]"))).Append(" into @Result ") : null;
             if (columnsToReturn != null)
                 stringBuilder.Append("DECLARE @Result TABLE (").Append(columnsToReturn.Aggregate(x => (new StringBuilder("[")).Append(x).Append("]").Append(" nvarchar(max)"), (result, x) => result.Append(", ")
-                        .Append(x).Append(" nvarchar(max)"))).Append(");");
+                        .Append(x).Append(" nvarchar(max)"))).Append(");\r\n");
             foreach (IDictionary<string, string> dict in data)
             {
                 var row = columnsToExclude != null ? dict.Where(x => !columnsToExclude.Contains(x.Key)).ToDictionary(x => x.Key, x => x.Value) : dict;
+                if (row.Count == 0)
+                    continue;
                 stringBuilder.Append("INSERT INTO [");
                 stringBuilder.Append(tableName);
                 stringBuilder.Append("] ");
@@ -883,9 +942,9 @@ SELECT @LogicalNameData";
                 if (columnsToReturn != null)
                     stringBuilder.Append(OutPutCommand);
                 stringBuilder.Append(" VALUES ");
-                stringBuilder.Append(row.Aggregate(x => new StringBuilder("(").Append(SQLServer.GetSQLValueBuilder(x.Value)),
-                    (result, x) => result.Append(", ").Append(SQLServer.GetSQLValueBuilder(x.Value))));
-                stringBuilder.Append("); ");
+                stringBuilder.Append(row.Aggregate(x => new StringBuilder("(").Append(SQLServer.GetSQLValueBuilder(x.Value, unquotedColumns.Contains(x.Key))),
+                    (result, x) => result.Append(", ").Append(SQLServer.GetSQLValueBuilder(x.Value, unquotedColumns.Contains(x.Key)))));
+                stringBuilder.Append(");\r\n ");
             }
             if (columnsToReturn != null)
                 stringBuilder.Append(";SELECT * FROM @Result;");
@@ -894,19 +953,52 @@ SELECT @LogicalNameData";
             return stringBuilder.Length > 0 ? stringBuilder.ToString() : ";";
         }
 
-        private static string UpdateRowsCommand(string tableName, string primaryKeyColumnName, IEnumerable<IDictionary<string, string>> columns)
+        private static string UpdateRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<IDictionary<string, string>> columns)
         {
             var builder = new StringBuilder();
             foreach (var column in columns)
             {
-                builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(column.Where(x => x.Key != primaryKeyColumnName)
-                                        .Aggregate(x => new StringBuilder("[").Append(x.Key).Append("] = ").Append(GetSQLValueBuilder(x.Value)),
-                                            (result, x) => result.Append(", ").Append("[").Append(x.Key).Append("] = ").Append(GetSQLValueBuilder(x.Value))))
-                        .Append(" WHERE [").Append(primaryKeyColumnName).Append("] = ").Append(column[primaryKeyColumnName])
-                        .Append(';');
+                builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(column.Where(x => !primaryKeyColumnNames.Contains(x.Key))
+                                        .Select(x => new StringBuilder("[").Append(x.Key).Append("] ").Append(GetSQLSetValueBuilder(x.Value)))
+                                        .Aggregate(x => x,
+                                            (result, x) => result.Append(", ").Append(x)));
+
+                if (primaryKeyColumnNames.Any())
+                    builder.Append(" WHERE ").Append((primaryKeyColumnNames.Select(x => "[" + x + "] = [" + x + "]")
+                            .Aggregate(x => x, (result, x) => result + " AND " + x)));
+
+                builder.Append(";\r\n");
             }
 
             return builder.Length > 0 ? builder.ToString() : ";";
+        }
+
+        private static string UpdateRowsCommand(string tableName, IEnumerable<Tuple<IDictionary<string, string>, IDictionary<string, string>>> setWhereDiffs, bool useLike = false)
+        {
+            var builder = new StringBuilder();
+            foreach (var diff in setWhereDiffs)
+            {
+                builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(diff.Item1
+                                        .Select(x => new StringBuilder("[").Append(x.Key).Append("] ").Append(GetSQLSetValueBuilder(x.Value)))
+                                        .Aggregate(x => x,
+                                            (result, x) => result.Append(", ").Append(x)));
+                if (diff.Item2.Any())
+                    builder.Append(" WHERE ").Append(diff.Item2.Select(x => new StringBuilder("[" + x.Key + "] ")
+                                .Append(useLike ? GetSQLLikeValueBuilder(x.Value) : GetSQLEqualsValueBuilder(x.Value)))
+                            .Aggregate(x => x, (result, x) => result.Append(" AND ").Append(x)));
+
+                builder.Append(";\r\n");
+            }
+
+            return builder.Length > 0 ? builder.ToString() : ";";
+        }
+
+        public static class SetWhereRow
+        {
+            public static SetWhereRow<T, S> Create<T, S>(T setData, S whereData)
+            {
+                return new SetWhereRow<T, S> { SetData = setData, WhereData = whereData };
+            }
         }
 
         public class RelationshipInfo
@@ -922,6 +1014,13 @@ SELECT @LogicalNameData";
             public string RelatedTable { get; set; }
 
             public string TableName { get; set; }
+        }
+
+        public class SetWhereRow<T, S>
+        {
+            public T SetData { get; set; }
+
+            public S WhereData { get; set; }
         }
     }
 }

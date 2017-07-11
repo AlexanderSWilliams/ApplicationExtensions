@@ -24,71 +24,95 @@
 // WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY
 // WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+using Application.ByteArrayExtensions;
+using Application.IEnumerableExtensions;
 using Application.ObjectExtensions;
 using Application.TypeExtensions;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Data.SqlClient;
 using System.Dynamic;
 using System.Linq;
-using System.Reflection;
 
 namespace Application.Data
 {
     public static class DbConnectionExtensions
     {
+        static private readonly object _CommandTimeoutLock = new object();
+        static private readonly DbProviderFactory _factory = DbProviderFactories.GetFactory("System.Data.SqlClient");
         static private int _CommandTimeout = 30;
-        static private object _CommandTimeoutLock = new object();
-        static private DbProviderFactory _factory = DbProviderFactories.GetFactory("System.Data.SqlClient");
 
-        public static int Execute(this DbConnection connection, string sql, int? commandTimeout = null, params object[] args)
+        public static int Execute(this DbConnection connection, string sql, int? commandTimeout = null, DbTransaction trans = null, params object[] args)
         {
             VerifyOpenConnection(connection);
-            var cmd = CreateCommand(sql, connection, commandTimeout, args);
-            return cmd.ExecuteNonQuery();
+            var cmd = CreateCommand(sql, connection, commandTimeout, trans, args);
+            try
+            {
+                return cmd.ExecuteNonQuery();
+            }
+            catch (SqlException ex)
+            {
+                ex.Data.Add("SqlCommand", sql);
+                return 1;
+            }
         }
 
-        public static List<T> Query<T>(this DbConnection connection, string sql, int? commandTimeout = null, params object[] args)
+        public static List<T> Query<T>(this DbConnection connection, string sql, int? commandTimeout = null, DbTransaction trans = null, params object[] args)
         {
             var result = new List<T>();
             VerifyOpenConnection(connection);
 
             var HasDefaultConstructor = typeof(T).GetInstanceOfReferenceType() != null;
-            using (var rdr = CreateCommand(sql, connection, commandTimeout, args).ExecuteReader())
+            try
             {
-                while (rdr.Read())
+                using (var rdr = CreateCommand(sql, connection, commandTimeout, trans, args).ExecuteReader())
                 {
-                    if (HasDefaultConstructor)
+                    while (rdr.Read())
                     {
-                        var row = (T)typeof(T).GetInstanceOfReferenceType();
-                        rdr.RecordToDictionary().InjectInto(ref row);
-                        result.Add(row);
-                    }
-                    else
-                    {
-                        if (rdr.FieldCount > 1)
-                            throw new ApplicationException("The specified return type does not have a default constructor and the returned data has more than one column.");
+                        if (HasDefaultConstructor)
+                        {
+                            var row = (T)typeof(T).GetInstanceOfReferenceType();
+                            rdr.RecordToDictionary().InjectInto(ref row);
+                            result.Add(row);
+                        }
+                        else
+                        {
+                            if (rdr.FieldCount > 1)
+                                throw new ApplicationException("The specified return type does not have a default constructor and the returned data has more than one column.");
 
-                        result.Add((T)typeof(T).ParseValue(rdr.GetValue(0)));
+                            result.Add((T)typeof(T).ParseValue(rdr.GetValue(0)));
+                        }
                     }
+                    rdr.Close();
                 }
-                rdr.Close();
+            }
+            catch (SqlException ex)
+            {
+                ex.Data.Add("SqlCommand", sql);
             }
             return result;
         }
 
-        public static List<Dictionary<string, object>> Query(this DbConnection connection, string sql, int? commandTimeout = null, params object[] args)
+        public static List<Dictionary<string, string>> Query(this DbConnection connection, string sql, int? commandTimeout = null, DbTransaction trans = null, params object[] args)
         {
-            var result = new List<Dictionary<string, object>>();
+            var result = new List<Dictionary<string, string>>();
             VerifyOpenConnection(connection);
-            using (var rdr = CreateCommand(sql, connection, commandTimeout, args).ExecuteReader())
+            try
             {
-                while (rdr.Read())
+                using (var rdr = CreateCommand(sql, connection, commandTimeout, trans, args).ExecuteReader())
                 {
-                    result.Add(rdr.RecordToDictionary());
+                    while (rdr.Read())
+                    {
+                        result.Add(rdr.RecordToStringDictionary());
+                    }
+                    rdr.Close();
                 }
-                rdr.Close();
+            }
+            catch (SqlException ex)
+            {
+                ex.Data.Add("SqlCommand", sql);
             }
 
             return result;
@@ -102,7 +126,7 @@ namespace Application.Data
             }
         }
 
-        public static void VerifyOpenConnection(DbConnection connection)
+        public static void VerifyOpenConnection(this DbConnection connection)
         {
             if (connection.State == ConnectionState.Broken)
             {
@@ -159,15 +183,17 @@ namespace Application.Data
             }
         }
 
-        private static DbCommand CreateCommand(string sql, DbConnection conn, int? commandTimeout, params object[] args)
+        private static DbCommand CreateCommand(string sql, DbConnection conn, int? commandTimeout, DbTransaction trans = null, params object[] args)
         {
             var result = _factory.CreateCommand();
             if (result != null)
             {
+                var ConnAsTransaction = conn as ITransaction;
                 result.CommandTimeout = commandTimeout ?? _CommandTimeout;
-                result.Connection = conn;
+                result.Connection = ConnAsTransaction?.GetConnection() ?? conn;
                 result.CommandText = sql;
                 result.AddParams(args);
+                result.Transaction = trans ?? ConnAsTransaction?.Transaction;
             }
             return result;
         }
@@ -181,6 +207,21 @@ namespace Application.Data
             {
                 var v = values[i];
                 result.Add(reader.GetName(i), DBNull.Value.Equals(v) ? null : v);
+            }
+            return result;
+        }
+
+        private static Dictionary<string, string> RecordToStringDictionary(this IDataReader reader)
+        {
+            var result = new Dictionary<string, string>();
+            var values = new object[reader.FieldCount];
+            reader.GetValues(values);
+            for (int i = 0; i < values.Length; i++)
+            {
+                var v = values[i];
+                var vByteArray = v as byte[];
+                result.Add(reader.GetName(i), DBNull.Value.Equals(v) ? null :
+                    (vByteArray.IsNullOrEmpty() ? v?.ToString() : "0x" + vByteArray.ToHexString()));
             }
             return result;
         }

@@ -8,7 +8,29 @@ namespace Application.IDictionaryExtensions
 {
     public static class IDictionaryExtensions
     {
-        public static S GetValueOrDefault<T, S>(this IDictionary<T, S> dict, T key, S defaultValue = null) where S : class
+        public static void AddOrIgnore<S, T>(this IDictionary<S, T> destination, S key, T value)
+        {
+            if (!destination.ContainsKey(key))
+                destination.Add(key, value);
+        }
+
+        public static void AddOrOverWrite<S, T>(this IDictionary<S, T> destination, S key, T value)
+        {
+            if (destination.ContainsKey(key))
+                destination[key] = value;
+            else
+                destination.Add(key, value);
+        }
+
+        public static S GetValueOrDefault<T, S>(this IDictionary<T, S> dict, T key) where S : new()
+        {
+            S value;
+            if (key != null && dict.TryGetValue(key, out value))
+                return value;
+            return new S();
+        }
+
+        public static S GetValueOrDefault<T, S>(this IDictionary<T, S> dict, T key, S defaultValue) where S : class
         {
             S value;
             if (key != null && dict.TryGetValue(key, out value))
@@ -78,7 +100,65 @@ namespace Application.IDictionaryExtensions
             }
         }
 
-        public static IDictionary<S, T> Merge<S, T>(this IDictionary<S, T> destination, IDictionary<S, T> from)
+        public static Dictionary<K, List<V>> MergeIntoLists<K, V>(this IEnumerable<IDictionary<K, V>> source)
+        {
+            var Result = new Dictionary<K, List<V>>();
+            foreach (var dict in source)
+            {
+                foreach (var pair in dict)
+                {
+                    List<V> value;
+                    if (Result.TryGetValue(pair.Key, out value))
+                        value.Add(pair.Value);
+                    else
+                        Result.Add(pair.Key, new List<V> { pair.Value });
+                }
+            }
+            return Result;
+        }
+
+        public static Dictionary<K, V> MergeOrIgnore<K, V>(this IEnumerable<IDictionary<K, V>> source)
+        {
+            var Result = new Dictionary<K, V>();
+            foreach (var dict in source)
+            {
+                foreach (var pair in dict)
+                {
+                    V value;
+                    if (!Result.TryGetValue(pair.Key, out value))
+                        Result.Add(pair.Key, pair.Value);
+                }
+            }
+            return Result;
+        }
+
+        public static void MergeOrIgnore<S, T>(this IDictionary<S, T> destination, IDictionary<S, T> from)
+        {
+            foreach (var pair in from)
+            {
+                if (!destination.ContainsKey(pair.Key))
+                    destination.Add(pair.Key, pair.Value);
+            }
+        }
+
+        public static Dictionary<K, V> MergeOrOverWrite<K, V>(this IEnumerable<IDictionary<K, V>> source)
+        {
+            var Result = new Dictionary<K, V>();
+            foreach (var dict in source)
+            {
+                foreach (var pair in dict)
+                {
+                    V value;
+                    if (Result.TryGetValue(pair.Key, out value))
+                        Result[pair.Key] = pair.Value;
+                    else
+                        Result.Add(pair.Key, pair.Value);
+                }
+            }
+            return Result;
+        }
+
+        public static void MergeOrOverWrite<S, T>(this IDictionary<S, T> destination, IDictionary<S, T> from)
         {
             foreach (var pair in from)
             {
@@ -87,7 +167,6 @@ namespace Application.IDictionaryExtensions
                 else
                     destination.Add(pair.Key, pair.Value);
             }
-            return destination;
         }
 
         public static Dictionary<K, int> ToFrequency<K, V>(this IDictionary<K, IEnumerable<V>> dict)

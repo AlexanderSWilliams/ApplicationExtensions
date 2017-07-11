@@ -1,7 +1,4 @@
-﻿using Application.IEnumerableExtensions;
-using System;
-
-namespace Application.Types
+﻿namespace Application.Types
 {
     public class TextWord
     {
