@@ -1,5 +1,6 @@
 ﻿using Application.PropertyFieldInfoExtensions;
 using Application.TypeExtensions;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -51,8 +52,7 @@ namespace Application.IDictionaryExtensions
             S value;
             if (key != null && dict.TryGetValue(key, out value))
                 return value;
-
-            throw new KeyNotFoundException("The key \"" + key + "\" was not present.");
+            throw new Exception("The key: " + key?.ToString() + " was not found in the dictionary: " + JsonConvert.SerializeObject(dict));
         }
 
         public static void InjectFromObjectDictionary(this IDictionary<string, object> sourceDictionary, object target)
@@ -174,14 +174,15 @@ namespace Application.IDictionaryExtensions
             return dict.ToDictionary(x => x.Key, x => x.Value.Count());
         }
 
-        public static List<List<string>> ToListOfListOfStrings<K, V>(this IEnumerable<IDictionary<K, V>> source)
+        public static List<List<string>> ToListOfListOfStrings<K, V>(this IEnumerable<IDictionary<K, V>> source, bool includeHeader = true)
         {
             var result = new List<List<string>>();
             if (!source.Any())
                 return result;
             var Keys = source.First().Keys.ToList();
 
-            result.Add(Keys.Select(x => x?.ToString()).ToList());
+            if (includeHeader)
+                result.Add(Keys.Select(x => x?.ToString()).ToList());
             foreach (var row in source)
             {
                 var rowResult = new List<string>();
