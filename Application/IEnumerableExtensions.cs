@@ -96,7 +96,7 @@ namespace Application.IEnumerableExtensions
             foreach (var item in enumerable)
             {
                 var Key = keySelector(item);
-                var KeyIndex = KeyGroups.IndexForSortedList(x => !x.Contains(Key));
+                var KeyIndex = KeyGroups.PartitionIndex(x => !x.Contains(Key));
 
                 if (KeyIndex >= 0)
                 {
@@ -368,10 +368,11 @@ namespace Application.IEnumerableExtensions
         public static IGrouping<TKey, TSource> MaxBy<TSource, TKey>(this IEnumerable<TSource> source, Func<TSource, TKey> selector, IComparer<TKey> comparer = null)
         {
             comparer = comparer ?? Comparer<TKey>.Default;
+
             using (var sourceIterator = source.GetEnumerator())
             {
                 if (!sourceIterator.MoveNext())
-                    return null;
+                    return Grouping.Create(default(TKey), Enumerable.Empty<TSource>());
 
                 var MaximumElement = sourceIterator.Current;
                 var MaximumKey = selector(MaximumElement);
@@ -467,10 +468,11 @@ namespace Application.IEnumerableExtensions
         public static IGrouping<TKey, TSource> MinBy<TSource, TKey>(this IEnumerable<TSource> source, Func<TSource, TKey> selector, IComparer<TKey> comparer = null)
         {
             comparer = comparer ?? Comparer<TKey>.Default;
+
             using (var sourceIterator = source.GetEnumerator())
             {
                 if (!sourceIterator.MoveNext())
-                    return null;
+                    return Grouping.Create(default(TKey), Enumerable.Empty<TSource>());
 
                 var MinimumElement = sourceIterator.Current;
                 var MinimumKey = selector(MinimumElement);
