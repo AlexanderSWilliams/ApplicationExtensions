@@ -32,25 +32,6 @@ namespace Application.IListExtensions
             }
         }
 
-        public static int IndexForSortedList<T>(this IList<T> source, Func<T, bool> predicate)
-        {
-            int min = 0, max = source.Count - 1;
-            while (min < max)
-            {
-                var mid = (max - min) / 2 + min;
-
-                if (predicate(source[mid]))
-                    max = mid;
-                else
-                    min = mid + 1;
-            }
-
-            if (max == min && predicate(source[min]))
-                return min;
-            else
-                return -1;
-        }
-
         public static int IndexOfNextNewItem<T>(IList<T> list, int index, T item, IComparer<T> comparer)
         {
             var Length = list.Count;
@@ -79,6 +60,41 @@ namespace Application.IListExtensions
             }
 
             return s;
+        }
+
+        public static int IndexForFirstTrue<T>(this IList<T> source, Func<T, bool> predicate)
+        {
+            int min = 0, max = source.Count - 1, diff = max - min;
+            while (diff > 0)
+            {
+                var mid = min + diff / 2;
+
+                if (predicate(source[mid]))
+                    max = mid;
+                else
+                    min = mid + 1;
+
+                diff = max - min;
+            }
+
+            return source.Count > 0 && predicate(source[min]) ? min : -1;
+        }
+
+        public static int IndexForLastTrue<T>(this IList<T> source, Func<T, bool> predicate)
+        {
+            int lo = -1, hi = source.Count;
+
+            while (hi - lo > 1)
+            {
+                int mid = lo + (hi - lo) / 2;
+                if (predicate(source[mid]))
+                {
+                    lo = mid;
+                }
+                else hi = mid;
+            }
+
+            return lo;
         }
 
         public static T[] SortedExcept<T>(this IList<T> first, IList<T> second)

@@ -62,7 +62,7 @@ namespace Application.IDictionaryExtensions
                 targetProp = o,
                 sourceProp = i.FirstOrDefault()
             })
-            .Where(x => x.sourceProp.Key != null);
+            .Where(x => !string.IsNullOrEmpty(x.sourceProp.Key));
 
             foreach (var prop in CommonProps)
             {
@@ -79,7 +79,7 @@ namespace Application.IDictionaryExtensions
                      targetProp = o,
                      sourceProp = i.FirstOrDefault()
                  })
-                .Where(x => x.sourceProp.Key != null);
+                .Where(x => !string.IsNullOrEmpty(x.sourceProp.Key));
 
             foreach (var prop in CommonProps)
             {

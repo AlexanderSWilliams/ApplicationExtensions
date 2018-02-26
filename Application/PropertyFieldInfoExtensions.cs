@@ -181,11 +181,12 @@ namespace Application.PropertyFieldInfoExtensions
                 return true;
             }
 
-            var DestinationUnderlyingType = destinationType.GetUnderlyingValueOrNumericType();
+            var DestinationType = Nullable.GetUnderlyingType(destinationType) ?? destinationType;
+            var DestinationUnderlyingType = DestinationType.IsEnum ? Enum.GetUnderlyingType(DestinationType) : DestinationType;
             var SourceUnderlyingType = sourceType.GetUnderlyingValueOrNumericType();
             if (DestinationUnderlyingType == SourceUnderlyingType)
             {
-                destinationField.SetValue(destinationInstance, destinationType.ParseValue(value));
+                destinationField.SetValue(destinationInstance, DestinationType.IsEnum ? Enum.ToObject(DestinationType, value) : destinationType.ParseValue(value));
                 return true;
             }
 
@@ -195,7 +196,7 @@ namespace Application.PropertyFieldInfoExtensions
                 var SourceNumericType = numericDictionary.GetValueOrNull(SourceUnderlyingType);
                 if (DestinationNumericType >= SourceNumericType)
                 {
-                    destinationField.SetValue(destinationInstance, destinationType.ParseValue(value));
+                    destinationField.SetValue(destinationInstance, DestinationType.IsEnum ? Enum.ToObject(DestinationType, value) : destinationType.ParseValue(value));
                     return true;
                 }
             }

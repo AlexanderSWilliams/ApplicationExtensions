@@ -59,6 +59,7 @@
     <Compile Include="IDisposableExtensions.cs" />
     <Compile Include="ActionExtensions.cs" />
     <Compile Include="IComparerExtensions.cs" />
+    <Compile Include="LinkedListExtensions.cs" />
     <Compile Include="Utilities\Directory.cs" />
     <Compile Include="IListExtensions.cs" />
     <Compile Include="IEnumerableExtensions.cs" />

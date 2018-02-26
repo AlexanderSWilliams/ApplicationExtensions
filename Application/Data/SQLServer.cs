@@ -1,4 +1,5 @@
-﻿using Application.IEnumerableExtensions;
+﻿using Application.GenericExtensions;
+using Application.IEnumerableExtensions;
 using Application.ObjectExtensions;
 using System;
 using System.Collections.Generic;
@@ -13,6 +14,8 @@ namespace Application.Data.SQLServer
         public static StringBuilder DefaultBuilder = new StringBuilder("DEFAULT");
 
         public static StringBuilder IsNULLBuilder = new StringBuilder("IS NULL");
+
+        public static StringBuilder EqualsNullBuilder = new StringBuilder("= NULL");
 
         public static StringBuilder NULLBuilder = new StringBuilder("NULL");
 
@@ -224,16 +227,17 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
                 .Select(x => x.ToDictionary(y => y.Key, y => y.Value?.ToString()));
         }
 
-        public static IEnumerable<string> GetColumnNames(this DbConnection conn, string tableName)
+        public static List<string> ColumnNames(DbConnection conn, string tableName, string schema)
         {
-            return conn.Query<string>(@"select
-               syscolumns.name as [Column]
-            from
-               sysobjects, syscolumns
-            where sysobjects.id = syscolumns.id
-            and   sysobjects.xtype = 'u'
-            and  sysobjects.name = '" + tableName + @"'
-            order by syscolumns.name");
+            tableName = tableName.Replace("[", "").Replace("]", "");
+            schema = schema.Replace("[", "").Replace("]", "");
+
+            return conn.Query<string>(@"SELECT col.name FROM sys.columns col
+                JOIN sys.tables tab
+                ON col.object_id = tab.object_id
+                JOIN sys.schemas sch
+                ON tab.schema_id = sch.schema_id
+                WHERE tab.name = '" + tableName + "' AND sch.name = '" + schema + "' ORDER BY column_id");
         }
 
         public static IEnumerable<SQLServer.RelationshipInfo> GetCyclicRelationships(this DbConnection conn)
@@ -262,12 +266,11 @@ ORDER BY [t23].[value22], [t23].[value2], [t23].[value], [t23].[name]
 
         public static Dictionary<string, Dictionary<string, string>> GetDefaultDefinitions(this DbConnection conn)
         {
-            return conn.Query(@"select ColumnName = col.name, TableName = o.name, DefaultValue = object_definition(col.default_object_id) from sys.default_constraints c
+            return conn.Query(@"select Sch = s.name, ColumnName = col.name, TableName = o.name, DefaultValue = object_definition(col.default_object_id) from sys.default_constraints c
     inner join sys.columns col on col.default_object_id = c.object_id
     inner join sys.objects o  on o.object_id = c.parent_object_id
-    inner join sys.schemas s on s.schema_id = o.schema_id
-	where s.name = 'dbo'")
-                .GroupBy(x => x["TableName"])
+    inner join sys.schemas s on s.schema_id = o.schema_id")
+                .GroupBy(x => "[" + x["Sch"] + "].[" + x["TableName"] + "]")
                 .ToDictionary(x => x.Key, x => x.ToDictionary(y => y["ColumnName"], y => y["DefaultValue"], StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
         }
 
@@ -326,10 +329,10 @@ SELECT @LogicalNameData UNION ALL SELECT @LogicalNameLog;";
 
         public static Dictionary<string, List<string>> GetNonNullableColumns(this DbConnection conn)
         {
-            return conn.Query(@"SELECT TABLE_NAME, COLUMN_NAME
+            return conn.Query(@"SELECT TABLE_NAME, COLUMN_NAME, TABLE_SCHEMA
 FROM INFORMATION_SCHEMA.COLUMNS
-WHERE IS_NULLABLE = 'NO' AND TABLE_SCHEMA = 'dbo'")
-            .GroupBy(x => x["TABLE_NAME"])
+WHERE IS_NULLABLE = 'NO'")
+            .GroupBy(x => "[" + x["TABLE_SCHEMA"] + "].[" + x["TABLE_NAME"] + "]")
             .ToDictionary(x => x.Key, x => x.Select(y => y["COLUMN_NAME"]).ToList(), StringComparer.OrdinalIgnoreCase);
         }
 
@@ -343,7 +346,7 @@ WHERE IS_NULLABLE = 'NO' AND TABLE_SCHEMA = 'dbo'")
         {
             var query = @"
                     SELECT * FROM (
-select A.TABLE_NAME, COLUMN_NAME from INFORMATION_SCHEMA.KEY_COLUMN_USAGE A
+select A.TABLE_NAME, A.TABLE_SCHEMA, COLUMN_NAME from INFORMATION_SCHEMA.KEY_COLUMN_USAGE A
 	JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS B
 	ON A.TABLE_NAME = B.TABLE_NAME AND
 	   A.CONSTRAINT_CATALOG = B.CONSTRAINT_CATALOG AND
@@ -353,10 +356,11 @@ select A.TABLE_NAME, COLUMN_NAME from INFORMATION_SCHEMA.KEY_COLUMN_USAGE A
 
             return conn.Query(query).Select(x => new
             {
+                SchemaName = x["TABLE_SCHEMA"],
                 TableName = x["TABLE_NAME"],
                 ColumName = x["COLUMN_NAME"]
             })
-            .GroupBy(x => x.TableName)
+            .GroupBy(x => "[" + x.SchemaName + "].[" + x.TableName + "]")
             .ToDictionary(x => x.Key, x => x.Select(y => y.ColumName).ToList(), StringComparer.OrdinalIgnoreCase);
         }
 
@@ -372,7 +376,7 @@ select A.TABLE_NAME, COLUMN_NAME from INFORMATION_SCHEMA.KEY_COLUMN_USAGE A
 
         public static StringBuilder GetSQLSetValueBuilder(string value)
         {
-            return value != null ? new StringBuilder("= '").Append(value.Replace("'", "''")).Append("'") : IsNULLBuilder;
+            return value != null ? new StringBuilder("= '").Append(value.Replace("'", "''")).Append("'") : EqualsNullBuilder;
         }
 
         public static StringBuilder GetSQLValueBuilder(string value, bool omitQuote)
@@ -447,20 +451,22 @@ select A.TABLE_NAME, COLUMN_NAME from INFORMATION_SCHEMA.KEY_COLUMN_USAGE A
 
         public static Dictionary<string, HashSet<string>> GetUnQuotedColumns(this DbConnection conn)
         {
-            return conn.Query(@"SELECT TABLE_NAME, COLUMN_NAME
+            return conn.Query(@"SELECT TABLE_NAME, COLUMN_NAME, TABLE_SCHEMA
 FROM INFORMATION_SCHEMA.COLUMNS
-WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image') AND TABLE_SCHEMA = 'dbo'")
-            .GroupBy(x => x["TABLE_NAME"])
+WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image')")
+            .GroupBy(x => "[" + x["TABLE_SCHEMA"] + "].[" + x["TABLE_NAME"] + "]")
             .ToDictionary(x => x.Key, x => x.Select(y => y["COLUMN_NAME"]).ToHashSet(), StringComparer.OrdinalIgnoreCase);
         }
 
-        public static IEnumerable<string> InsertRowsCommand(string tableName, IEnumerable<object> data, int batchRowCount, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
+        public static IEnumerable<string> InsertRowsCommand(string tableName, object data, int batchRowCount, int multiLineNum = 25, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
         {
-            return data.ChunkifyToList((list, y) => list.Count != batchRowCount).Select(x =>
-                InsertRowsCommand(tableName, x.Select(y => y.ToStringStringDictionary()), columnsToReturn, indentityInsert, columnsToExclude, unquotedColumns));
+            var Data = data as IEnumerable<object> ?? new[] { data };
+
+            return Data.ChunkifyToList((list, y) => list.Count != batchRowCount).Select(x =>
+                InsertRowsCommand(tableName, x.Select(y => y.ToStringStringDictionary()), multiLineNum, columnsToReturn, indentityInsert, columnsToExclude, unquotedColumns));
         }
 
-        public static List<string> MergeRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<object> data, bool tableHasIdentity, int batchRowCount, string setCMD = null, bool deleteUnspecifiedRows = false, Dictionary<string, string> ColumnsToDefault = null, HashSet<string> unquotedColumns = null)
+        public static List<string> MergeRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<object> data, bool tableHasIdentity, int batchRowCount, string setCMD = null, bool deleteUnspecifiedRows = false, Dictionary<string, string> ColumnsToDefault = null, IEnumerable<string> naturalKeyColumns = null, HashSet<string> unquotedColumns = null)
         {
             var dictData = data.Select(x => x.ToStringStringDictionary());
             var Result = new List<string>();
@@ -475,6 +481,7 @@ WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image') A
             var builder = new StringBuilder(DeleteIfExistsCommand(TempTableName) + "SELECT TOP 0 ").Append(columnNamesDelimited).Append(" INTO [").Append(TempTableName).Append("] from [").Append(tableName)
                 .Append(@"];");
 
+            tableHasIdentity = tableHasIdentity && naturalKeyColumns == null;
             if (tableHasIdentity)
                 builder.Append("SET IDENTITY_INSERT [").Append(TempTableName).Append("] ON").Append(System.Environment.NewLine);
 
@@ -485,7 +492,7 @@ WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image') A
 
             dictData.ChunkifyToList((list, y) => list.Count != batchRowCount).ToList().ForEach(y =>
             {
-                Result.Add(SQLServer.InsertRowsCommand(TempTableName, y, null, false, null, unquotedColumns));
+                Result.Add(InsertRowsCommand(TempTableName, y, 25, null, false, null, unquotedColumns));
             });
 
             builder = new StringBuilder("");
@@ -496,30 +503,37 @@ WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image') A
             if (setCMD != null)
                 builder.Append("UPDATE [").Append(TempTableName).Append("] ").Append(setCMD).Append(";");
 
-            if (deleteUnspecifiedRows)
-                builder.Append("DELETE a FROM [" + tableName + "] a LEFT OUTER JOIN [" + TempTableName +
-                    "] b ON ").Append(primaryKeyColumnNames.Any() ? primaryKeyColumnNames.Select(x => "a.[" + x + "] = b.[" + x + "] WHERE b.[" + x + "] IS NULL)")
-                                .Aggregate(x => x, (result, x) => result + " AND " + x) + ";" : "1=1;");
+            naturalKeyColumns = naturalKeyColumns ?? primaryKeyColumnNames;
 
-            builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON ")
-                .Append(primaryKeyColumnNames.Any() ? (primaryKeyColumnNames.Select(x => "[" + TempTableName + "].[" + x + "] = [" + tableName + "].[" + x + "]")
-                            .Aggregate(x => x, (result, x) => result + " AND " + x) + ";") : "1=1;");
+            if (deleteUnspecifiedRows && !naturalKeyColumns.IsNullOrEmpty())
+                builder.Append("DELETE a FROM [" + tableName + "] a LEFT OUTER JOIN [" + TempTableName +
+                    "] b ON ").Append(naturalKeyColumns.Select(x => "a.[" + x + "] = b.[" + x + "] WHERE b.[" + x + "] IS NULL)")
+                                .Aggregate(x => x, (result, x) => result + " AND " + x)).Append(";");
+
+            if (!naturalKeyColumns.IsNullOrEmpty())
+                builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON ")
+                    .Append((naturalKeyColumns.Select(x => "[" + TempTableName + "].[" + x + "] = [" + tableName + "].[" + x + "]")
+                                .Aggregate(x => x, (result, x) => result + " AND " + x) + ";"));
 
             if (tableHasIdentity)
                 builder.Append("SET IDENTITY_INSERT [").Append(tableName).Append(@"] ON;");
 
             builder.Append(@"INSERT INTO [")
-                    .Append(tableName).Append(@"] (").Append(columnNamesDelimited).Append(") SELECT ").Append(columnNamesDelimited).Append(" FROM [").Append(TempTableName).Append(@"] AS [t0]
-						WHERE NOT (EXISTS(
-							SELECT TOP (1) NULL AS [EMPTY]
-							FROM [").Append(tableName).Append(@"] AS [t1]
-							WHERE ").Append(primaryKeyColumnNames.Any() ? primaryKeyColumnNames.Select(x => @"[t0].[" + x + @"] = [t1].[" + x + @"]")
-                                                .Aggregate(x => x, (result, x) => result + " AND " + x) + "));" : "1=1));");
+                    .Append(tableName).Append(@"] (").Append(columnNamesDelimited).Append(") SELECT ")
+                    .Append(columnNames.Select(x => "A.[" + x + "]").Aggregate(x => new StringBuilder(x), (result, x) => result.Append(", ").Append(x)))
+                    .Append(" FROM [").Append(TempTableName).Append("]");
+
+            if (!naturalKeyColumns.IsNullOrEmpty())
+                builder.Append(@" AS A
+						LEFT JOIN [").Append(tableName).Append(@"] AS B ON ")
+                            .Append(naturalKeyColumns.Select(x => @"A.[" + x + @"] = B.[" + x + @"]")
+                                            .Aggregate(x => x, (result, x) => result + " AND " + x))
+                            .Append(" WHERE ").Append(naturalKeyColumns.Select(x => "B.[" + x + "] IS NULL").Aggregate(x => x, (result, x) => result + " OR " + x));
 
             if (tableHasIdentity)
-                builder.Append("SET IDENTITY_INSERT [").Append(tableName).Append(@"] OFF;");
+                builder.Append(";SET IDENTITY_INSERT [").Append(tableName).Append(@"] OFF");
 
-            builder.Append("DROP TABLE [").Append(TempTableName).Append("];");
+            builder.Append(";DROP TABLE [").Append(TempTableName).Append("];");
 
             Result.Add(builder.Length > 0 ? builder.ToString() : ";");
             return Result;
@@ -539,9 +553,12 @@ WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image') A
             return Result;
         }
 
-        public static bool TableHasIdentity(this DbConnection conn, string tableName)
+        public static bool? TableHasIdentity(this DbConnection conn, string tableName)
         {
-            return conn.Query<int>("SELECT OBJECTPROPERTY(OBJECT_ID('" + tableName + "'), 'TableHasIdentity')").First() == 1;
+            var Identity = conn.Query("SELECT OBJECTPROPERTY(OBJECT_ID('" + tableName.Replace("]", "").Replace("[", "") + "'), 'TableHasIdentity')").First().First().Value.ToInt32();
+            if (Identity == null)
+                return null;
+            return Identity == 1;
         }
 
         public static string UpdateLogicalNamesCommand(this DbConnection conn, string DB)
@@ -561,9 +578,27 @@ WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image') A
             return Result;
         }
 
-        public static string UpdateRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<object> columns)
+        public static string DeleteRowsCommand(string tableName, object data)
         {
-            return UpdateRowsCommand(tableName, primaryKeyColumnNames, columns.Select(x => x.ToStringStringDictionary()));
+            tableName = tableName[0] == '[' ? tableName : "[" + tableName + "]";
+            var Data = (data as IEnumerable<object> ?? new[] { data }).Select(x => x.ToStringStringDictionary());
+
+            var builder = new StringBuilder();
+            foreach (var row in Data)
+            {
+                builder.Append("DELETE FROM ").Append(tableName).Append(" WHERE ").Append(row.Select(x => new StringBuilder("[").Append(x.Key).Append("] = '").Append(x.Value).Append("'"))
+                                                                                                .Aggregate(x => x, (result, x) => result.Append(" AND ").Append(x)));
+
+                builder.Append(";\r\n");
+            }
+
+            return builder.Length > 0 ? builder.ToString() : ";";
+        }
+
+        public static string UpdateRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, object data)
+        {
+            var Data = data as IEnumerable<object> ?? new[] { data };
+            return UpdateRowsCommand(tableName, primaryKeyColumnNames, Data.Select(x => x.ToStringStringDictionary()));
         }
 
         public static string UpdateRowsCommand<T, S>(string tableName, IEnumerable<SetWhereRow<T, S>> setWhereDiffs, bool useLike = false)
@@ -920,51 +955,64 @@ WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image') A
                     .Aggregate(x => x, (result, x) => result.Append(" AND ").Append(x));
         }
 
-        private static string InsertRowsCommand(string tableName, IEnumerable<IDictionary<string, string>> data, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
+        private static string InsertRowsCommand(string tableName, IEnumerable<IDictionary<string, string>> data, int multiLineNum, IEnumerable<string> columnsToReturn = null, bool indentityInsert = false, IEnumerable<string> columnsToExclude = null, HashSet<string> unquotedColumns = null)
         {
+            if (!data.Any())
+                return ";";
+
+            tableName = tableName[0] == '[' ? tableName : "[" + tableName + "]";
             unquotedColumns = unquotedColumns ?? new HashSet<string>();
-            var stringBuilder = indentityInsert ? new StringBuilder("SET IDENTITY_INSERT [").Append(tableName).Append("] ON").Append(Environment.NewLine) : new StringBuilder();
+            var stringBuilder = indentityInsert ? new StringBuilder("SET IDENTITY_INSERT ").Append(tableName).Append(" ON").Append(Environment.NewLine) : new StringBuilder();
             var OutPutCommand = columnsToReturn != null ? (new StringBuilder("output ")).Append(columnsToReturn.Aggregate(x => (new StringBuilder("inserted.[")).Append(x).Append("]"),
                 (result, x) => result.Append(", ").Append("inserted.[").Append(x).Append("]"))).Append(" into @Result ") : null;
             if (columnsToReturn != null)
                 stringBuilder.Append("DECLARE @Result TABLE (").Append(columnsToReturn.Aggregate(x => (new StringBuilder("[")).Append(x).Append("]").Append(" nvarchar(max)"), (result, x) => result.Append(", ")
                         .Append(x).Append(" nvarchar(max)"))).Append(");\r\n");
-            foreach (IDictionary<string, string> dict in data)
+
+            if (columnsToExclude != null)
             {
-                var row = columnsToExclude != null ? dict.Where(x => !columnsToExclude.Contains(x.Key)).ToDictionary(x => x.Key, x => x.Value) : dict;
-                if (row.Count == 0)
-                    continue;
-                stringBuilder.Append("INSERT INTO [");
+                var ExcludeSet = columnsToExclude.ToHashSet();
+                data = data.Select(x => x.Where(y => !ExcludeSet.Contains(y.Key)).ToDictionary(y => y.Key, y => y.Value));
+            }
+            var ColumnCMD = data.First().Aggregate(x => new StringBuilder("([").Append(x.Key).Append("]"), (result, x) => result.Append(", [").Append(x.Key).Append("]"));
+
+            foreach (var rows in data.ChunkifyToList((list, y) => list.Count != multiLineNum))
+            {
+                stringBuilder.Append("INSERT INTO ");
                 stringBuilder.Append(tableName);
-                stringBuilder.Append("] ");
-                stringBuilder.Append(row.Aggregate(x => new StringBuilder("([").Append(x.Key).Append("]"), (result, x) => result.Append(", [").Append(x.Key).Append("]")));
+                stringBuilder.Append(" ");
+                stringBuilder.Append(ColumnCMD);
                 stringBuilder.Append(") ");
                 if (columnsToReturn != null)
                     stringBuilder.Append(OutPutCommand);
-                stringBuilder.Append(" VALUES ");
-                stringBuilder.Append(row.Aggregate(x => new StringBuilder("(").Append(SQLServer.GetSQLValueBuilder(x.Value, unquotedColumns.Contains(x.Key))),
-                    (result, x) => result.Append(", ").Append(SQLServer.GetSQLValueBuilder(x.Value, unquotedColumns.Contains(x.Key)))));
-                stringBuilder.Append(");\r\n ");
+                stringBuilder.Append(" VALUES\r\n");
+
+                stringBuilder.Append(rows.Select(r => r.Select(x => SQLServer.GetSQLValueBuilder(x.Value, unquotedColumns.Contains(x.Key))).Aggregate(x => new StringBuilder("(").Append(x),
+                    (result, x) => result.Append(", ").Append(x)).Append(")"))
+                    .Aggregate(x => x, (result, x) => result.Append(",\r\n").Append(x)));
+
+                stringBuilder.Append(";\r\n ");
             }
             if (columnsToReturn != null)
                 stringBuilder.Append(";SELECT * FROM @Result;");
             if (indentityInsert)
-                stringBuilder.Append("SET IDENTITY_INSERT [").Append(tableName).Append("] OFF;");
+                stringBuilder.Append("SET IDENTITY_INSERT ").Append(tableName).Append(" OFF;");
             return stringBuilder.Length > 0 ? stringBuilder.ToString() : ";";
         }
 
         private static string UpdateRowsCommand(string tableName, IEnumerable<string> primaryKeyColumnNames, IEnumerable<IDictionary<string, string>> columns)
         {
+            tableName = tableName[0] == '[' ? tableName : "[" + tableName + "]";
             var builder = new StringBuilder();
             foreach (var column in columns)
             {
-                builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(column.Where(x => !primaryKeyColumnNames.Contains(x.Key))
+                builder.Append("UPDATE ").Append(tableName).Append(" SET ").Append(column.Where(x => !primaryKeyColumnNames.Contains(x.Key))
                                         .Select(x => new StringBuilder("[").Append(x.Key).Append("] ").Append(GetSQLSetValueBuilder(x.Value)))
                                         .Aggregate(x => x,
                                             (result, x) => result.Append(", ").Append(x)));
 
                 if (primaryKeyColumnNames.Any())
-                    builder.Append(" WHERE ").Append((primaryKeyColumnNames.Select(x => "[" + x + "] = [" + x + "]")
+                    builder.Append(" WHERE ").Append((primaryKeyColumnNames.Select(x => "[" + x + "] = '" + column[x] + "'")
                             .Aggregate(x => x, (result, x) => result + " AND " + x)));
 
                 builder.Append(";\r\n");
@@ -975,10 +1023,11 @@ WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image') A
 
         private static string UpdateRowsCommand(string tableName, IEnumerable<Tuple<IDictionary<string, string>, IDictionary<string, string>>> setWhereDiffs, bool useLike = false)
         {
+            tableName = tableName[0] == '[' ? tableName : "[" + tableName + "]";
             var builder = new StringBuilder();
             foreach (var diff in setWhereDiffs)
             {
-                builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(diff.Item1
+                builder.Append("UPDATE ").Append(tableName).Append(" SET ").Append(diff.Item1
                                         .Select(x => new StringBuilder("[").Append(x.Key).Append("] ").Append(GetSQLSetValueBuilder(x.Value)))
                                         .Aggregate(x => x,
                                             (result, x) => result.Append(", ").Append(x)));

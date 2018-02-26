@@ -21,6 +21,8 @@ namespace Application.Types
             typeof(TimeSpan?),
             typeof(bool),
             typeof(bool?),
+            typeof(byte),
+            typeof(byte?),
             typeof(Guid),
             typeof(Guid?)
         };

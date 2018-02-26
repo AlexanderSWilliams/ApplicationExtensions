@@ -96,7 +96,7 @@ namespace Application.IEnumerableExtensions
             foreach (var item in enumerable)
             {
                 var Key = keySelector(item);
-                var KeyIndex = KeyGroups.PartitionIndex(x => !x.Contains(Key));
+                var KeyIndex = KeyGroups.IndexForFirstTrue(x => !x.Contains(Key));
 
                 if (KeyIndex >= 0)
                 {

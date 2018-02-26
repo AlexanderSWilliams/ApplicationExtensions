@@ -55,7 +55,7 @@ namespace Application.Data
             catch (SqlException ex)
             {
                 ex.Data.Add("SqlCommand", sql);
-                return 1;
+                throw;
             }
         }
 
@@ -91,6 +91,7 @@ namespace Application.Data
             catch (SqlException ex)
             {
                 ex.Data.Add("SqlCommand", sql);
+                throw;
             }
             return result;
         }
@@ -113,6 +114,7 @@ namespace Application.Data
             catch (SqlException ex)
             {
                 ex.Data.Add("SqlCommand", sql);
+                throw;
             }
 
             return result;
