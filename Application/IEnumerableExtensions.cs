@@ -143,6 +143,16 @@ namespace Application.IEnumerableExtensions
             return source.Any() ? source.First() : default(T?);
         }
 
+        public static T FirstOrThrow<T>(IEnumerable<T> source, string message)
+        {
+            foreach (var item in source)
+            {
+                return item;
+            }
+
+            throw new Exception(message);
+        }
+
         public static IEnumerable<U> FullJoin<S, T, K, U>(this IEnumerable<S> outer, IEnumerable<T> inner, Func<S, K> outerKeySelector, Func<T, K> innerKeySelector, Func<S, IEnumerable<T>, U> resultSelector)
         {
             return outer.FullJoin(inner, outerKeySelector, innerKeySelector, resultSelector, EqualityComparer<K>.Default);

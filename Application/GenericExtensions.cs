@@ -24,7 +24,7 @@ namespace Application.GenericExtensions
             }
         }
 
-        public static S SelectOrDefault<T, S>(this T source, Func<T, S> func, S defaultValue = default(S)) where S : class
+        public static S SelectOrDefault<T, S>(this T source, Func<T, S> func, S defaultValue = default(S))
         {
             if (source == null)
                 return defaultValue;

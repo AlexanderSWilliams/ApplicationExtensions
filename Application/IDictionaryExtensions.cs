@@ -1,6 +1,5 @@
 ﻿using Application.PropertyFieldInfoExtensions;
 using Application.TypeExtensions;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -47,12 +46,12 @@ namespace Application.IDictionaryExtensions
             return null;
         }
 
-        public static S GetValueOrThrow<T, S>(this IDictionary<T, S> dict, T key)
+        public static S GetValueOrThrow<T, S>(this IDictionary<T, S> dict, T key, string exceptionMessage)
         {
             S value;
             if (key != null && dict.TryGetValue(key, out value))
                 return value;
-            throw new Exception("The key: " + key?.ToString() + " was not found in the dictionary: " + JsonConvert.SerializeObject(dict));
+            throw new Exception("The key \"" + key?.ToString() + "\" was not found in the dictionary.\r\n" + exceptionMessage);
         }
 
         public static void InjectFromObjectDictionary(this IDictionary<string, object> sourceDictionary, object target)
