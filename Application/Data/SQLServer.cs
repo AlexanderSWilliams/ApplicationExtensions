@@ -507,8 +507,11 @@ WHERE (DATA_TYPE = 'binary' OR DATA_TYPE = 'varbinary' OR DATA_TYPE = 'image')")
 
             if (deleteUnspecifiedRows && !naturalKeyColumns.IsNullOrEmpty())
                 builder.Append("DELETE a FROM [" + tableName + "] a LEFT OUTER JOIN [" + TempTableName +
-                    "] b ON ").Append(naturalKeyColumns.Select(x => "a.[" + x + "] = b.[" + x + "] WHERE b.[" + x + "] IS NULL)")
-                                .Aggregate(x => x, (result, x) => result + " AND " + x)).Append(";");
+                    "] b ON ").Append(naturalKeyColumns.Select(x => "a.[" + x + "] = b.[" + x + "]")
+                                .Aggregate(x => x, (result, x) => result + " AND " + x))
+                            .Append(" WHERE ")
+                            .Append(naturalKeyColumns.Select(x => "b.[" + x + "] IS NULL")
+                                .Aggregate(x => x, (result, x) => result + " OR " + x)).Append(";");
 
             if (!naturalKeyColumns.IsNullOrEmpty())
                 builder.Append("UPDATE [").Append(tableName).Append("] SET ").Append(setColumnsCommand).Append(" FROM [").Append(TempTableName).Append("] INNER JOIN [").Append(tableName).Append("] ON ")
