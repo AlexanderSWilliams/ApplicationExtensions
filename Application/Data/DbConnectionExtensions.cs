@@ -41,7 +41,7 @@ namespace Application.Data
     public static class DbConnectionExtensions
     {
         static private readonly object _CommandTimeoutLock = new object();
-        static private readonly DbProviderFactory _factory = DbProviderFactories.GetFactory("System.Data.SqlClient");
+        static private readonly DbProviderFactory _factory = SqlClientFactory.Instance;
         static private int _CommandTimeout = 30;
 
         public static int Execute(this DbConnection connection, string sql, int? commandTimeout = null, DbTransaction trans = null, params object[] args)
